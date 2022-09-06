@@ -150,7 +150,8 @@ export default class Receive extends Extension {
                 logger.debug(error.stack);
             }
         }
-
+        if (data.type === 'attributeReport') payload.transactionID = -1;
+        else payload.transactionID = data.meta.zclTransactionSequenceNumber;
         if (Object.keys(payload).length) {
             publish(payload);
         } else {

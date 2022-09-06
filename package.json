@@ -37,6 +37,7 @@
   "dependencies": {
     "ajv": "^8.11.0",
     "bind-decorator": "^1.0.11",
+    "cls-hooked": "^4.2.2",
     "connect-gzip-static": "2.1.1",
     "core-js": "^3.24.1",
     "debounce": "^1.2.1",
@@ -60,7 +61,7 @@
     "winston-syslog": "^2.6.0",
     "winston-transport": "^4.5.0",
     "ws": "^8.8.1",
-    "zigbee-herdsman": "0.14.53",
+    "zigbee-herdsman": "IOTechSystems/zigbee-herdsman#v0.14-branch",
     "zigbee-herdsman-converters": "14.0.610",
     "zigbee2mqtt-frontend": "0.6.110"
   },

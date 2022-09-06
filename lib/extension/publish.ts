@@ -116,186 +116,194 @@ export default class Publish extends Extension {
     }
 
     @bind async onMQTTMessage(data: eventdata.MQTTMessage): Promise<void> {
-        const parsedTopic = this.parseTopic(data.topic);
-        if (!parsedTopic) return;
+        const createNameSpace = require('cls-hooked').createNamespace;
+        const session = createNameSpace('my session');
+        await session.run( async () => {
+            const parsedTopic = this.parseTopic(data.topic);
+            if (!parsedTopic) return;
 
-        const re = this.zigbee.resolveEntity(parsedTopic.ID);
-        if (re == null) {
-            this.legacyLog({type: `entity_not_found`, message: {friendly_name: parsedTopic.ID}});
-            logger.error(`Entity '${parsedTopic.ID}' is unknown`);
-            return;
-        }
-
-        // Get entity details
-        const definition = re instanceof Device ? re.definition : re.membersDefinitions();
-        const target = re instanceof Group ? re.zh : re.endpoint(parsedTopic.endpoint);
-        if (target == null) {
-            logger.error(`Device '${re.name}' has no endpoint '${parsedTopic.endpoint}'`);
-            return;
-        }
-        const device = re instanceof Device ? re.zh : null;
-        const entitySettings = re.options;
-        const entityState = this.state.get(re);
-        const membersState = re instanceof Group ?
-            Object.fromEntries(re.zh.members.map((e) => [e.getDevice().ieeeAddr,
-                this.state.get(this.zigbee.resolveEntity(e.getDevice().ieeeAddr))])) : null;
-        let converters: zhc.ToZigbeeConverter[];
-        {
-            if (Array.isArray(definition)) {
-                const c = new Set(definition.map((d) => d.toZigbee).flat());
-                if (c.size == 0) converters = defaultGroupConverters;
-                else converters = Array.from(c);
-            } else if (definition) {
-                converters = definition.toZigbee;
-            } else {
-                converters = [zigbeeHerdsmanConverters.toZigbeeConverters.read,
-                    zigbeeHerdsmanConverters.toZigbeeConverters.write];
+            const re = this.zigbee.resolveEntity(parsedTopic.ID);
+            if (re == null) {
+                this.legacyLog({type: `entity_not_found`, message: {friendly_name: parsedTopic.ID}});
+                logger.error(`Entity '${parsedTopic.ID}' is unknown`);
+                return;
             }
-        }
 
-        // Convert the MQTT message to a Zigbee message.
-        const message = this.parseMessage(parsedTopic, data);
-        if (message == null) {
-            logger.error(`Invalid message '${message}', skipping...`);
-            return;
-        }
-        this.updateMessageHomeAssistant(message, entityState);
-
-        /**
-         * Order state & brightness based on current bulb state
-         *
-         * Not all bulbs support setting the color/color_temp while it is off
-         * this results in inconsistant behavior between different vendors.
-         *
-         * bulb on => move state & brightness to the back
-         * bulb off => move state & brightness to the front
-         */
-        const entries = Object.entries(message);
-        const sorter = typeof message.state === 'string' && message.state.toLowerCase() === 'off' ? 1 : -1;
-        entries.sort((a) => (['state', 'brightness', 'brightness_percent'].includes(a[0]) ? sorter : sorter * -1));
-
-        // For each attribute call the corresponding converter
-        const usedConverters: {[s: number]: zhc.ToZigbeeConverter[]} = {};
-        const toPublish: {[s: number | string]: KeyValue} = {};
-        const toPublishEntity: {[s: number | string]: Device | Group} = {};
-        const addToToPublish = (entity: Device | Group, payload: KeyValue): void => {
-            const ID = entity.ID;
-            if (!(ID in toPublish)) {
-                toPublish[ID] = {};
-                toPublishEntity[ID] = entity;
+            // Get entity details
+            const definition = re instanceof Device ? re.definition : re.membersDefinitions();
+            const target = re instanceof Group ? re.zh : re.endpoint(parsedTopic.endpoint);
+            if (target == null) {
+                logger.error(`Device '${re.name}' has no endpoint '${parsedTopic.endpoint}'`);
+                return;
             }
-            toPublish[ID] = {...toPublish[ID], ...payload};
-        };
+            const device = re instanceof Device ? re.zh : null;
+            const entitySettings = re.options;
+            const entityState = this.state.get(re);
+            const membersState = re instanceof Group ?
+                Object.fromEntries(re.zh.members.map((e) => [e.getDevice().ieeeAddr,
+                    this.state.get(this.zigbee.resolveEntity(e.getDevice().ieeeAddr))])) : null;
+            let converters: zhc.ToZigbeeConverter[];
+            {
+                if (Array.isArray(definition)) {
+                    const c = new Set(definition.map((d) => d.toZigbee).flat());
+                    if (c.size == 0) converters = defaultGroupConverters;
+                    else converters = Array.from(c);
+                } else if (definition) {
+                    converters = definition.toZigbee;
+                } else {
+                    converters = [zigbeeHerdsmanConverters.toZigbeeConverters.read,
+                        zigbeeHerdsmanConverters.toZigbeeConverters.write];
+                }
+            }
 
-        for (let [key, value] of entries) {
-            let endpointName = parsedTopic.endpoint;
-            let localTarget = target;
-            let endpointOrGroupID = utils.isEndpoint(target) ? target.ID : target.groupID;
+            // Convert the MQTT message to a Zigbee message.
+            const message = this.parseMessage(parsedTopic, data);
+            if (message == null) {
+                logger.error(`Invalid message '${message}', skipping...`);
+                return;
+            }
+            this.updateMessageHomeAssistant(message, entityState);
 
-            // When the key has a endpointName included (e.g. state_right), this will override the target.
-            const propertyEndpointMatch = key.match(propertyEndpointRegex);
-            if (re instanceof Device && propertyEndpointMatch) {
-                endpointName = propertyEndpointMatch[2];
-                key = propertyEndpointMatch[1];
-                localTarget = re.endpoint(endpointName);
-                if (localTarget == null) {
-                    logger.error(`Device '${re.name}' has no endpoint '${endpointName}'`);
+            /**
+             * Order state & brightness based on current bulb state
+             *
+             * Not all bulbs support setting the color/color_temp while it is off
+             * this results in inconsistant behavior between different vendors.
+             *
+             * bulb on => move state & brightness to the back
+             * bulb off => move state & brightness to the front
+             */
+            const entries = Object.entries(message);
+            const sorter = typeof message.state === 'string' && message.state.toLowerCase() === 'off' ? 1 : -1;
+            entries.sort((a) => (['state', 'brightness', 'brightness_percent'].includes(a[0]) ? sorter : sorter * -1));
+
+            // For each attribute call the corresponding converter
+            const usedConverters: { [s: number]: zhc.ToZigbeeConverter[] } = {};
+            const toPublish: { [s: number | string]: KeyValue } = {};
+            const toPublishEntity: { [s: number | string]: Device | Group } = {};
+            const addToToPublish = (entity: Device | Group, payload: KeyValue): void => {
+                const ID = entity.ID;
+                if (!(ID in toPublish)) {
+                    toPublish[ID] = {};
+                    toPublishEntity[ID] = entity;
+                }
+                toPublish[ID] = {...toPublish[ID], ...payload};
+            };
+            const transactionID = new Map(entries).get('transactionID') ?? 0;
+            session.set('givenTransactionID', transactionID);
+
+            for (let [key, value] of entries) {
+                if (key === 'transactionID') continue;
+                let endpointName = parsedTopic.endpoint;
+                let localTarget = target;
+                let endpointOrGroupID = utils.isEndpoint(target) ? target.ID : target.groupID;
+
+                // When the key has a endpointName included (e.g. state_right), this will override the target.
+                const propertyEndpointMatch = key.match(propertyEndpointRegex);
+                if (re instanceof Device && propertyEndpointMatch) {
+                    endpointName = propertyEndpointMatch[2];
+                    key = propertyEndpointMatch[1];
+                    localTarget = re.endpoint(endpointName);
+                    if (localTarget == null) {
+                        logger.error(`Device '${re.name}' has no endpoint '${endpointName}'`);
+                        continue;
+                    }
+                    endpointOrGroupID = localTarget.ID;
+                }
+
+                if (!usedConverters.hasOwnProperty(endpointOrGroupID)) usedConverters[endpointOrGroupID] = [];
+                const converter = converters.find((c) => c.key.includes(key));
+
+                if (parsedTopic.type === 'set' && usedConverters[endpointOrGroupID].includes(converter)) {
+                    // Use a converter for set only once
+                    // (e.g. light_onoff_brightness converters can convert state and brightness)
                     continue;
                 }
-                endpointOrGroupID = localTarget.ID;
-            }
 
-            if (!usedConverters.hasOwnProperty(endpointOrGroupID)) usedConverters[endpointOrGroupID] = [];
-            const converter = converters.find((c) => c.key.includes(key));
+                if (!converter) {
+                    logger.error(`No converter available for '${key}' (${stringify(message[key])})`);
+                    continue;
+                }
 
-            if (parsedTopic.type === 'set' && usedConverters[endpointOrGroupID].includes(converter)) {
-                // Use a converter for set only once
-                // (e.g. light_onoff_brightness converters can convert state and brightness)
-                continue;
-            }
+                // If the endpoint_name name is a nubmer, try to map it to a friendlyName
+                if (!isNaN(Number(endpointName)) && re.isDevice() && utils.isEndpoint(localTarget) &&
+                    re.endpointName(localTarget)) {
+                    endpointName = re.endpointName(localTarget);
+                }
 
-            if (!converter) {
-                logger.error(`No converter available for '${key}' (${stringify(message[key])})`);
-                continue;
-            }
+                // Converter didn't return a result, skip
+                const meta = {endpoint_name: endpointName, options: entitySettings, message: {...message}, logger, device,
+                    state: entityState, membersState, mapped: definition};
 
-            // If the endpoint_name name is a nubmer, try to map it to a friendlyName
-            if (!isNaN(Number(endpointName)) && re.isDevice() && utils.isEndpoint(localTarget) &&
-                re.endpointName(localTarget)) {
-                endpointName = re.endpointName(localTarget);
-            }
-
-            // Converter didn't return a result, skip
-            const meta = {endpoint_name: endpointName, options: entitySettings, message: {...message}, logger, device,
-                state: entityState, membersState, mapped: definition};
-
-            // Strip endpoint name from meta.message properties.
-            if (endpointName) {
-                for (const [key, value] of Object.entries(meta.message)) {
-                    if (key.endsWith(endpointName)) {
-                        delete meta.message[key];
-                        const keyWithoutEndpoint = key.substring(0, key.length - endpointName.length - 1);
-                        meta.message[keyWithoutEndpoint] = value;
+                // Strip endpoint name from meta.message properties.
+                if (endpointName) {
+                    for (const [key, value] of Object.entries(meta.message)) {
+                        if (key.endsWith(endpointName)) {
+                            delete meta.message[key];
+                            const keyWithoutEndpoint = key.substring(0, key.length - endpointName.length - 1);
+                            meta.message[keyWithoutEndpoint] = value;
+                        }
                     }
                 }
-            }
 
-            try {
-                if (parsedTopic.type === 'set' && converter.convertSet) {
-                    logger.debug(`Publishing '${parsedTopic.type}' '${key}' to '${re.name}'`);
-                    const result = await converter.convertSet(localTarget, key, value, meta);
-                    const optimistic = !entitySettings.hasOwnProperty('optimistic') || entitySettings.optimistic;
-                    if (result && result.state && optimistic) {
-                        const msg = result.state;
+                try {
+                    if (parsedTopic.type === 'set' && converter.convertSet) {
+                        logger.debug(`Publishing '${parsedTopic.type}' '${key}' to '${re.name}'`);
+                        const result = await converter.convertSet(localTarget, key, value, meta);
+                        const receivedTransactionID = session.get('receivedTransactionID');
+                        const optimistic = !entitySettings.hasOwnProperty('optimistic') || entitySettings.optimistic;
+                        if (result && result.state && optimistic) {
+                            const msg = result.state;
+                            msg.transactionID = receivedTransactionID;
+                            if (endpointName) {
+                                for (const key of Object.keys(msg)) {
+                                    msg[`${key}_${endpointName}`] = msg[key];
+                                    delete msg[key];
+                                }
+                            }
 
-                        if (endpointName) {
-                            for (const key of Object.keys(msg)) {
-                                msg[`${key}_${endpointName}`] = msg[key];
-                                delete msg[key];
+                            // filter out attribute listed in filtered_optimistic
+                            utils.filterProperties(entitySettings.filtered_optimistic, msg);
+
+                            addToToPublish(re, msg);
+                        }
+
+                        if (result && result.membersState && optimistic) {
+                            for (const [ieeeAddr, state] of Object.entries(result.membersState)) {
+                                addToToPublish(this.zigbee.resolveEntity(ieeeAddr), state);
                             }
                         }
 
-                        // filter out attribute listed in filtered_optimistic
-                        utils.filterProperties(entitySettings.filtered_optimistic, msg);
-
-                        addToToPublish(re, msg);
+                        this.legacyRetrieveState(re, converter, result, localTarget, key, meta);
+                    } else if (parsedTopic.type === 'get' && converter.convertGet) {
+                        logger.debug(`Publishing get '${parsedTopic.type}' '${key}' to '${re.name}'`);
+                        await converter.convertGet(localTarget, key, meta);
+                    } else {
+                        logger.error(`No converter available for '${parsedTopic.type}' '${key}' (${message[key]})`);
+                        continue;
                     }
-
-                    if (result && result.membersState && optimistic) {
-                        for (const [ieeeAddr, state] of Object.entries(result.membersState)) {
-                            addToToPublish(this.zigbee.resolveEntity(ieeeAddr), state);
-                        }
-                    }
-
-                    this.legacyRetrieveState(re, converter, result, localTarget, key, meta);
-                } else if (parsedTopic.type === 'get' && converter.convertGet) {
-                    logger.debug(`Publishing get '${parsedTopic.type}' '${key}' to '${re.name}'`);
-                    await converter.convertGet(localTarget, key, meta);
-                } else {
-                    logger.error(`No converter available for '${parsedTopic.type}' '${key}' (${message[key]})`);
-                    continue;
+                } catch (error) {
+                    const message =
+                        `Publish '${parsedTopic.type}' '${key}' to '${re.name}' failed: '${error}'`;
+                    logger.error(message);
+                    logger.debug(error.stack);
+                    this.legacyLog({type: `zigbee_publish_error`, message, meta: {friendly_name: re.name}});
                 }
-            } catch (error) {
-                const message =
-                    `Publish '${parsedTopic.type}' '${key}' to '${re.name}' failed: '${error}'`;
-                logger.error(message);
-                logger.debug(error.stack);
-                this.legacyLog({type: `zigbee_publish_error`, message, meta: {friendly_name: re.name}});
+
+                usedConverters[endpointOrGroupID].push(converter);
             }
 
-            usedConverters[endpointOrGroupID].push(converter);
-        }
-
-        for (const [ID, payload] of Object.entries(toPublish)) {
-            if (Object.keys(payload).length != 0) {
-                this.publishEntityState(toPublishEntity[ID], payload);
+            for (const [ID, payload] of Object.entries(toPublish)) {
+                if (Object.keys(payload).length != 0) {
+                    this.publishEntityState(toPublishEntity[ID], payload);
+                }
             }
-        }
 
-        const scenesChanged = Object.values(usedConverters)
-            .some((cl) => cl.some((c) => c.key.some((k) => sceneConverterKeys.includes(k))));
-        if (scenesChanged) {
-            this.eventBus.emitScenesChanged();
-        }
+            const scenesChanged = Object.values(usedConverters)
+                .some((cl) => cl.some((c) => c.key.some((k) => sceneConverterKeys.includes(k))));
+            if (scenesChanged) {
+                this.eventBus.emitScenesChanged();
+            }
+        });
     }
 }
