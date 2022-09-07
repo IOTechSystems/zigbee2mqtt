@@ -3,7 +3,7 @@
 ### Build
 In order to build a docker image of Zigbee2MQTT, use the following command within the current directory:
 
-    docker build -f docker/Dockerfile -t zigbee2mqtt-iotech .
+    docker build -f docker/Dockerfile -t iotechsys/zigbee2mqtt .
 
 ### Run
 To then run the Zigbee2MQTT docker image created using the previous build command, use the following:
@@ -16,5 +16,5 @@ To then run the Zigbee2MQTT docker image created using the previous build comman
        -p 8080:8080 \
        -v $(pwd)/data:/app/data \
        -v /run/udev:/run/udev:ro \
-       -e TZ=Europe/Amsterdam \
-       zigbee2mqtt-iotech
+       -e TZ=Europe/London \
+       iotechsys/zigbee2mqtt
