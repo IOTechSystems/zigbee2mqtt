@@ -287,7 +287,7 @@ export default class Publish extends Extension {
                         `Publish '${parsedTopic.type}' '${key}' to '${re.name}' failed: '${error}'`;
                     logger.error(message);
                     logger.debug(error.stack);
-                    this.legacyLog({type: `zigbee_publish_error`, message, meta: {friendly_name: re.name}});
+                    this.legacyLog({type: `zigbee_publish_error`, message, meta: {friendly_name: re.name, transaction: transactionID}});
                 }
 
                 usedConverters[endpointOrGroupID].push(converter);
