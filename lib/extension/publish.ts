@@ -189,11 +189,11 @@ export default class Publish extends Extension {
                 }
                 toPublish[ID] = {...toPublish[ID], ...payload};
             };
-            const transactionID = new Map(entries).get('transactionID') ?? 0;
+            const transactionID = new Map(entries).get('transaction') ?? 0;
             session.set('givenTransactionID', transactionID);
 
             for (let [key, value] of entries) {
-                if (key === 'transactionID') continue;
+                if (key === 'transaction') continue;
                 let endpointName = parsedTopic.endpoint;
                 let localTarget = target;
                 let endpointOrGroupID = utils.isEndpoint(target) ? target.ID : target.groupID;
@@ -254,7 +254,7 @@ export default class Publish extends Extension {
                         const optimistic = !entitySettings.hasOwnProperty('optimistic') || entitySettings.optimistic;
                         if (result && result.state && optimistic) {
                             const msg = result.state;
-                            msg.transactionID = receivedTransactionID;
+                            msg.transaction = receivedTransactionID;
                             if (endpointName) {
                                 for (const key of Object.keys(msg)) {
                                     msg[`${key}_${endpointName}`] = msg[key];
@@ -287,7 +287,7 @@ export default class Publish extends Extension {
                         `Publish '${parsedTopic.type}' '${key}' to '${re.name}' failed: '${error}'`;
                     logger.error(message);
                     logger.debug(error.stack);
-                    this.legacyLog({type: `zigbee_publish_error`, message, meta: {friendly_name: re.name}});
+                    this.legacyLog({type: `zigbee_publish_error`, message, meta: {friendly_name: re.name, transaction: transactionID}});
                 }
 
                 usedConverters[endpointOrGroupID].push(converter);
