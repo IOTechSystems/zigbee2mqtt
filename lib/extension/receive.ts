@@ -91,6 +91,8 @@ export default class Receive extends Extension {
         /* istanbul ignore next */
         if (!data.device) return;
 
+        if(data.type != 'attributeReport') return;
+
         if (!this.shouldProcess(data)) {
             utils.publishLastSeen({device: data.device, reason: 'messageEmitted'},
                 settings.get(), true, this.publishEntityState);
@@ -150,10 +152,9 @@ export default class Receive extends Extension {
                 logger.debug(error.stack);
             }
         }
-        if (data.type === 'attributeReport') payload.transaction = -1;
-        else payload.transaction = data.meta.zclTransactionSequenceNumber;
         if (Object.keys(payload).length) {
-            publish(payload);
+            payload['isReport'] = true;
+            await this.mqtt.publish(data.device.name, stringify(payload), {});
         } else {
             utils.publishLastSeen({device: data.device, reason: 'messageEmitted'},
                 settings.get(), true, this.publishEntityState);
