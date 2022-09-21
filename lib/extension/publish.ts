@@ -179,7 +179,7 @@ export default class Publish extends Extension {
         const toPublish: { [s: number | string]: KeyValue } = {};
         const toPublishEntity: { [s: number | string]: Device | Group } = {};
         const requestID: number = +new Map(entries).get('request');
-        let returnMap: {[s: string]: string | number | boolean} = {request: requestID};
+        let returnMap: {[s: string]: string | number | boolean | string[]} = {request: requestID};
         const addToToPublish = (entity: Device | Group, payload: KeyValue): void => {
             const ID = entity.ID;
             if (!(ID in toPublish)) {
@@ -188,6 +188,7 @@ export default class Publish extends Extension {
             }
             toPublish[ID] = {...toPublish[ID], ...payload};
         };
+        const errors = [];
 
         for (let [key, value] of entries) {
             if (key === 'request') continue;
@@ -246,7 +247,12 @@ export default class Publish extends Extension {
                 if (parsedTopic.type === 'set' && converter.convertSet) {
                     logger.debug(`Publishing '${parsedTopic.type}' '${key}' to '${re.name}'`);
                     const result = await converter.convertSet(localTarget, key, value, meta);
-                    if (result) returnMap['successful'] = true;
+                    if (result) {
+                        let prev : string[] = [];
+                        if (returnMap.hasOwnProperty('successful')) prev = <string[]>returnMap['successful'];
+                        prev.push(key);
+                        returnMap['successful'] = prev;
+                    }
                     const optimistic = !entitySettings.hasOwnProperty('optimistic') || entitySettings.optimistic;
                     if (result && result.state && optimistic) {
                         const msg = result.state;
@@ -332,11 +338,9 @@ export default class Publish extends Extension {
                     `Publish '${parsedTopic.type}' '${key}' to '${re.name}' failed: '${error}'`;
                 logger.error(message);
                 logger.debug(error.stack);
-                await this.mqtt.publish(re.name, stringify(
-                    {request: requestID, error: message}), {},
-                );
+                error.key = key;
+                errors.push(error);
             }
-            usedConverters[endpointOrGroupID].push(converter);
         }
         for (const [ID, payload] of Object.entries(toPublish)) {
             if (Object.keys(payload).length != 0) {
@@ -348,6 +352,15 @@ export default class Publish extends Extension {
         if (scenesChanged) {
             this.eventBus.emitScenesChanged();
         }
+        if (errors.length > 0) returnMap['errors'] = errors.map((error) => error.message + ' for property ' + error.key);
+        const failures : string[] = [];
+        let successes : string[] = [];
+        if (returnMap.hasOwnProperty('successful')) successes = <string[]>returnMap['successful'];
+        for (const [key] of entries) {
+            if (key === 'request') continue;
+            if (!successes.includes(key)) failures.push(key);
+        }
+        if (failures.length > 0) returnMap['failed'] = failures;
         if (Object.keys(returnMap).length > 1) await this.mqtt.publish(re.name, stringify(returnMap), {});
     }
 }
