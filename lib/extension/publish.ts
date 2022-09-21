@@ -341,7 +341,6 @@ export default class Publish extends Extension {
                 error.key = key;
                 errors.push(error);
             }
-            usedConverters[endpointOrGroupID].push(converter);
         }
         for (const [ID, payload] of Object.entries(toPublish)) {
             if (Object.keys(payload).length != 0) {
@@ -353,7 +352,7 @@ export default class Publish extends Extension {
         if (scenesChanged) {
             this.eventBus.emitScenesChanged();
         }
-        if (errors.length > 0) returnMap['errors'] = errors.map((error) => error.message + ' for property ' + error.key);
+        if (errors.length > 0) returnMap['errors'] = errors.map((error) => error.message);
 
         if(parsedTopic.type === 'set') {
             const failures: string[] = [];
