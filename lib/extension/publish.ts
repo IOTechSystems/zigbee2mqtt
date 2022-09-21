@@ -353,14 +353,17 @@ export default class Publish extends Extension {
             this.eventBus.emitScenesChanged();
         }
         if (errors.length > 0) returnMap['errors'] = errors.map((error) => error.message + ' for property ' + error.key);
-        const failures : string[] = [];
-        let successes : string[] = [];
-        if (returnMap.hasOwnProperty('successful')) successes = <string[]>returnMap['successful'];
-        for (const [key] of entries) {
-            if (key === 'request') continue;
-            if (!successes.includes(key)) failures.push(key);
+
+        if(parsedTopic.type === 'set') {
+            const failures: string[] = [];
+            let successes: string[] = [];
+            if (returnMap.hasOwnProperty('successful')) successes = <string[]>returnMap['successful'];
+            for (const [key] of entries) {
+                if (key === 'request') continue;
+                if (!successes.includes(key)) failures.push(key);
+            }
+            if (failures.length > 0) returnMap['failed'] = failures;
         }
-        if (failures.length > 0) returnMap['failed'] = failures;
         if (Object.keys(returnMap).length > 1) await this.mqtt.publish(re.name, stringify(returnMap), {});
     }
 }
