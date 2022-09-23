@@ -247,12 +247,10 @@ export default class Publish extends Extension {
                 if (parsedTopic.type === 'set' && converter.convertSet) {
                     logger.debug(`Publishing '${parsedTopic.type}' '${key}' to '${re.name}'`);
                     const result = await converter.convertSet(localTarget, key, value, meta);
-                    if (result) {
-                        let prev : string[] = [];
-                        if (returnMap.hasOwnProperty('successful')) prev = <string[]>returnMap['successful'];
-                        prev.push(key);
-                        returnMap['successful'] = prev;
-                    }
+                    let prev : string[] = [];
+                    if (returnMap.hasOwnProperty('successful')) prev = <string[]>returnMap['successful'];
+                    prev.push(key);
+                    returnMap['successful'] = prev;
                     const optimistic = !entitySettings.hasOwnProperty('optimistic') || entitySettings.optimistic;
                     if (result && result.state && optimistic) {
                         const msg = result.state;
