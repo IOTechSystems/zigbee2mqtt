@@ -1,0 +1,107 @@
+#!/usr/bin/env groovy
+
+def targets = ['x86_64', 'x86', 'arm64', 'arm32'] as String[]
+
+def checkoutStage (arch)
+{
+  cleanWs (cleanWhenAborted: true, cleanWhenFailure: true, cleanWhenNotBuilt: true, cleanWhenSuccess: true)
+  checkout scm
+  currentBuild.displayName = "Zigbee2MQTT ${arch}: ${env.BUILD_ID}"
+}
+
+def buildStage (arch)
+{
+  sh "./scripts/build.sh ${env.Archive}"
+}
+
+def cleanStage (arch)
+{
+  sh "./scripts/clean.sh"
+}
+
+def buildStages (target)
+{
+  node ("docker-${target}")
+  {
+    stage ("Checkout ${target}") { checkoutStage (target)}
+    stage ("Build ${target}") { buildStage (target) }
+    stage ("Clean ${target}") { cleanStage (target) }
+  }
+}
+
+buildMap = [:]
+for (t in targets)
+{
+  def target = t
+  if (("${params.Arch}" == target || "${params.Arch}" == 'all'))
+  {
+    buildMap[target] = { buildStages (target) }
+  }
+}
+buildMap.failFast = false
+
+pipeline
+{
+  agent none
+  parameters
+  {
+    string (defaultValue: 'heads/XRT-1956-branch', description: 'tags/<tag> or heads/<branch>', name: 'BUILD')
+    choice (choices: ['all','x86_64','x86','arm64','arm32'], description: 'Build Host Architecture', name: 'Arch')
+    booleanParam(defaultValue: false, description: 'Archive Docker Image to repository', name: 'Archive')
+    booleanParam (defaultValue: false, description: 'Create Docker Manifests?', name: 'MANIFESTS')
+  }
+  stages
+  {
+    stage ('All')
+    {
+      steps
+      {
+        script
+        {
+          parallel buildMap
+
+        }
+      }
+    }
+
+    stage ('Manifest Creation')
+    {
+      agent { label 'docker-x86_64' }
+      steps
+      {
+        script
+        {
+          if (("${params.Archive}" == "true" && "${params.MANIFESTS}" == "true"))
+          {
+            env.WORKSPACE = pwd()
+            env.version = readFile "${env.WORKSPACE}/VERSION"
+            env.version = env.version.trim()
+            println env.version
+
+            env.verDev = env.version.substring(env.version.lastIndexOf("."))
+            env.verDev = env.verDev.trim()
+            env.verMinor = env.version.substring(0,env.version.lastIndexOf("."))
+            if (( "${verDev}" == ".dev" ))
+            {
+               env.verMinor = env.verMinor.substring(0,env.verMinor.lastIndexOf("."))
+               env.verMinor = env.verMinor.trim()+env.verDev
+            }
+            println env.verMinor
+
+            build job: 'Create-Docker-Manifest', parameters: [
+            string(name: 'BUILD', value: 'heads/XRT-1956-branch'),
+            string(name: 'Arch', value: 'x86_64'),
+            string(name: 'images', value: "iotechsys/zigbee2mqtt:${env.version}-arm, iotechsys/zigbee2mqtt:${env.version}-arm64, iotechsys/zigbee2mqtt:${env.version}-x86_64, iotechsys/zigbee2mqtt:${env.version}-x86"),
+            string(name: 'manifest', value: "iotechsys/zigbee2mqtt:${env.version}")]
+
+            build job: 'Create-Docker-Manifest', parameters: [
+            string(name: 'BUILD', value: 'heads/XRT-1956-branch'),
+            string(name: 'Arch', value: 'x86_64'),
+            string(name: 'images', value: "iotechsys/zigbee2mqtt:${env.version}-arm, iotechsys/zigbee2mqtt:${env.version}-arm64, iotechsys/zigbee2mqtt:${env.version}-x86_64, iotechsys/zigbee2mqtt:${env.version}-x86"),
+            string(name: 'manifest', value: "iotechsys/zigbee2mqtt:${env.verMinor}")]
+          }
+        }
+      }
+    }
+  }
+}
