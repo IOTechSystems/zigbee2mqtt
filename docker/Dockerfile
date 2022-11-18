@@ -18,7 +18,7 @@ RUN apk add --no-cache --virtual .buildtools make gcc g++ python3 linux-headers 
 FROM base as release
 
 COPY --from=dependencies_and_build /app/node_modules ./node_modules
-COPY dist ./dist
+COPY --from=dependencies_and_build /app/dist ./dist
 COPY package.json LICENSE index.js data/configuration.yaml ./
 
 COPY docker/docker-entrypoint.sh /usr/local/bin/
