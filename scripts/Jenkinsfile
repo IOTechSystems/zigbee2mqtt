@@ -45,7 +45,7 @@ pipeline
   agent none
   parameters
   {
-    string (defaultValue: 'heads/XRT-1956-branch', description: 'tags/<tag> or heads/<branch>', name: 'BUILD')
+    string (defaultValue: 'heads/master', description: 'tags/<tag> or heads/<branch>', name: 'BUILD')
     choice (choices: ['all','x86_64','arm64','arm32'], description: 'Build Host Architecture', name: 'Arch')
     booleanParam(defaultValue: false, description: 'Archive Docker Image to repository', name: 'Archive')
     booleanParam (defaultValue: false, description: 'Create Docker Manifests?', name: 'MANIFESTS')
@@ -89,13 +89,13 @@ pipeline
             println env.verMinor
 
             build job: 'Create-Docker-Manifest', parameters: [
-            string(name: 'BUILD', value: 'heads/XRT-1956-branch'),
+            string(name: 'BUILD', value: 'heads/master'),
             string(name: 'Arch', value: 'x86_64'),
             string(name: 'images', value: "iotechsys/zigbee2mqtt:${env.version}-arm, iotechsys/zigbee2mqtt:${env.version}-arm64, iotechsys/zigbee2mqtt:${env.version}-x86_64,"),
             string(name: 'manifest', value: "iotechsys/zigbee2mqtt:${env.version}")]
 
             build job: 'Create-Docker-Manifest', parameters: [
-            string(name: 'BUILD', value: 'heads/XRT-1956-branch'),
+            string(name: 'BUILD', value: 'heads/master'),
             string(name: 'Arch', value: 'x86_64'),
             string(name: 'images', value: "iotechsys/zigbee2mqtt:${env.version}-arm, iotechsys/zigbee2mqtt:${env.version}-arm64, iotechsys/zigbee2mqtt:${env.version}-x86_64"),
             string(name: 'manifest', value: "iotechsys/zigbee2mqtt:${env.verMinor}")]
