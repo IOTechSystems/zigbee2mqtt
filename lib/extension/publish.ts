@@ -175,9 +175,11 @@ export default class Publish extends Extension {
         entries.sort((a) => (['state', 'brightness', 'brightness_percent'].includes(a[0]) ? sorter : sorter * -1));
 
         // For each attribute call the corresponding converter
-        const usedConverters: {[s: number]: zhc.ToZigbeeConverter[]} = {};
-        const toPublish: {[s: number | string]: KeyValue} = {};
-        const toPublishEntity: {[s: number | string]: Device | Group} = {};
+        const usedConverters: { [s: number]: zhc.ToZigbeeConverter[] } = {};
+        const toPublish: { [s: number | string]: KeyValue } = {};
+        const toPublishEntity: { [s: number | string]: Device | Group } = {};
+        const requestID: number = +new Map(entries).get('request');
+        let returnMap: {[s: string]: string | number | boolean | string[]} = {request: requestID};
         const addToToPublish = (entity: Device | Group, payload: KeyValue): void => {
             const ID = entity.ID;
             if (!(ID in toPublish)) {
@@ -186,8 +188,10 @@ export default class Publish extends Extension {
             }
             toPublish[ID] = {...toPublish[ID], ...payload};
         };
+        const errors = [];
 
         for (let [key, value] of entries) {
+            if (key === 'request') continue;
             let endpointName = parsedTopic.endpoint;
             let localTarget = target;
             let endpointOrGroupID = utils.isEndpoint(target) ? target.ID : target.groupID;
@@ -239,11 +243,14 @@ export default class Publish extends Extension {
                     }
                 }
             }
-
             try {
                 if (parsedTopic.type === 'set' && converter.convertSet) {
                     logger.debug(`Publishing '${parsedTopic.type}' '${key}' to '${re.name}'`);
                     const result = await converter.convertSet(localTarget, key, value, meta);
+                    let prev : string[] = [];
+                    if (returnMap.hasOwnProperty('successful')) prev = <string[]>returnMap['successful'];
+                    prev.push(key);
+                    returnMap['successful'] = prev;
                     const optimistic = !entitySettings.hasOwnProperty('optimistic') || entitySettings.optimistic;
                     if (result && result.state && optimistic) {
                         const msg = result.state;
@@ -266,11 +273,60 @@ export default class Publish extends Extension {
                             addToToPublish(this.zigbee.resolveEntity(ieeeAddr), state);
                         }
                     }
-
                     this.legacyRetrieveState(re, converter, result, localTarget, key, meta);
                 } else if (parsedTopic.type === 'get' && converter.convertGet) {
                     logger.debug(`Publishing get '${parsedTopic.type}' '${key}' to '${re.name}'`);
-                    await converter.convertGet(localTarget, key, meta);
+                    const createNameSpace = require('cls-hooked').createNamespace;
+                    const session = createNameSpace('my session');
+                    returnMap = await session.runAndReturn(async () => {
+                        await converter.convertGet(localTarget, key, meta);
+                        const msg = session.get('returnMessage');
+                        const foundPayload = msg.frame.Payload;
+                        const returnCluster = session.get('returnCluster');
+                        const returnAttributes = session.get('returnAttributes');
+                        const constructedData: KeyValue | Array<string | number> = {};
+                        if (foundPayload.length != returnAttributes.length) {
+                            throw new Error('Return payload in unexpected format');
+                        }
+                        for (let i = 0; i < foundPayload.length; i++) {
+                            let foundVal = foundPayload[i].attrData;
+                            constructedData[returnAttributes[i]] = foundVal;
+                            const msgType = 'readResponse';
+
+                            const constructedMsg: eventdata.DeviceMessage = {
+                                type: msgType,
+                                // Will need to be changed for groups
+                                device: re instanceof Device ? re : null,
+                                endpoint: re instanceof Device ? re.endpoint(msg.endpoint) : null,
+                                linkquality: msg.linkquality,
+                                groupID: msg.groupID,
+                                cluster: returnCluster,
+                                data: constructedData,
+                                meta: {zclTransactionSequenceNumber: msg.frame.Header.transactionSequenceNumber},
+                            };
+                            const emptyPublish = (payload: KeyValue): void => {
+                            };
+                            let revConverters;
+                            if (!(re instanceof Group)) {
+                                revConverters = zigbeeHerdsmanConverters.findByDevice(re.zh).fromZigbee.filter((c) => {
+                                    const type = Array.isArray(c.type) ? c.type.includes(msgType) : c.type === msgType;
+                                    return c.cluster === returnCluster.name && type;
+                                });
+                            }
+                            for (const revConverter of revConverters) {
+                                try {
+                                    const revConverted = await revConverter.convert(
+                                        re instanceof Device ? re.definition : null, constructedMsg, emptyPublish, re.options, meta);
+                                    if (revConverted) foundVal = {...foundVal, ...revConverted};
+                                } catch (error) /* istanbul ignore next */ {
+                                    logger.error(`Exception while calling fromZigbee converter: ${error.message}}`);
+                                    logger.debug(error.stack);
+                                }
+                            }
+                            returnMap = {...returnMap, ...foundVal};
+                        }
+                        return returnMap;
+                    });
                 } else {
                     logger.error(`No converter available for '${parsedTopic.type}' '${key}' (${message[key]})`);
                     continue;
@@ -280,22 +336,32 @@ export default class Publish extends Extension {
                     `Publish '${parsedTopic.type}' '${key}' to '${re.name}' failed: '${error}'`;
                 logger.error(message);
                 logger.debug(error.stack);
-                this.legacyLog({type: `zigbee_publish_error`, message, meta: {friendly_name: re.name}});
+                error.key = key;
+                errors.push(error);
             }
-
-            usedConverters[endpointOrGroupID].push(converter);
         }
-
         for (const [ID, payload] of Object.entries(toPublish)) {
             if (Object.keys(payload).length != 0) {
                 this.publishEntityState(toPublishEntity[ID], payload);
             }
         }
-
         const scenesChanged = Object.values(usedConverters)
             .some((cl) => cl.some((c) => c.key.some((k) => sceneConverterKeys.includes(k))));
         if (scenesChanged) {
             this.eventBus.emitScenesChanged();
         }
+        if (errors.length > 0) returnMap['errors'] = errors.map((error) => error.message);
+
+        if(parsedTopic.type === 'set') {
+            const failures: string[] = [];
+            let successes: string[] = [];
+            if (returnMap.hasOwnProperty('successful')) successes = <string[]>returnMap['successful'];
+            for (const [key] of entries) {
+                if (key === 'request') continue;
+                if (!successes.includes(key)) failures.push(key);
+            }
+            if (failures.length > 0) returnMap['failed'] = failures;
+        }
+        if (Object.keys(returnMap).length > 1) await this.mqtt.publish(re.name, stringify(returnMap), {});
     }
 }
