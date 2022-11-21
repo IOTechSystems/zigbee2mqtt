@@ -1,6 +1,6 @@
 #!/usr/bin/env groovy
 
-def targets = ['x86_64', 'x86', 'arm64', 'arm32'] as String[]
+def targets = ['x86_64', 'arm64', 'arm32'] as String[]
 
 def checkoutStage (arch)
 {
@@ -46,7 +46,7 @@ pipeline
   parameters
   {
     string (defaultValue: 'heads/XRT-1956-branch', description: 'tags/<tag> or heads/<branch>', name: 'BUILD')
-    choice (choices: ['all','x86_64','x86','arm64','arm32'], description: 'Build Host Architecture', name: 'Arch')
+    choice (choices: ['all','x86_64','arm64','arm32'], description: 'Build Host Architecture', name: 'Arch')
     booleanParam(defaultValue: false, description: 'Archive Docker Image to repository', name: 'Archive')
     booleanParam (defaultValue: false, description: 'Create Docker Manifests?', name: 'MANIFESTS')
   }
@@ -91,13 +91,13 @@ pipeline
             build job: 'Create-Docker-Manifest', parameters: [
             string(name: 'BUILD', value: 'heads/XRT-1956-branch'),
             string(name: 'Arch', value: 'x86_64'),
-            string(name: 'images', value: "iotechsys/zigbee2mqtt:${env.version}-arm, iotechsys/zigbee2mqtt:${env.version}-arm64, iotechsys/zigbee2mqtt:${env.version}-x86_64, iotechsys/zigbee2mqtt:${env.version}-x86"),
+            string(name: 'images', value: "iotechsys/zigbee2mqtt:${env.version}-arm, iotechsys/zigbee2mqtt:${env.version}-arm64, iotechsys/zigbee2mqtt:${env.version}-x86_64,"),
             string(name: 'manifest', value: "iotechsys/zigbee2mqtt:${env.version}")]
 
             build job: 'Create-Docker-Manifest', parameters: [
             string(name: 'BUILD', value: 'heads/XRT-1956-branch'),
             string(name: 'Arch', value: 'x86_64'),
-            string(name: 'images', value: "iotechsys/zigbee2mqtt:${env.version}-arm, iotechsys/zigbee2mqtt:${env.version}-arm64, iotechsys/zigbee2mqtt:${env.version}-x86_64, iotechsys/zigbee2mqtt:${env.version}-x86"),
+            string(name: 'images', value: "iotechsys/zigbee2mqtt:${env.version}-arm, iotechsys/zigbee2mqtt:${env.version}-arm64, iotechsys/zigbee2mqtt:${env.version}-x86_64"),
             string(name: 'manifest', value: "iotechsys/zigbee2mqtt:${env.verMinor}")]
           }
         }
