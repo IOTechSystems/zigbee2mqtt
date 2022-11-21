@@ -10,14 +10,15 @@ COPY package*.json tsconfig.json index.js ./
 COPY lib ./lib
 
 RUN apk add --no-cache --virtual .buildtools make gcc g++ python3 linux-headers git && \
-    npm ci --production --no-audit --no-optional --no-update-notifier && \
+    npm ci --development --no-audit --no-optional --no-update-notifier && \
+    npm run build && \
     apk del .buildtools
 
 # Release
 FROM base as release
 
 COPY --from=dependencies_and_build /app/node_modules ./node_modules
-COPY dist ./dist
+COPY --from=dependencies_and_build /app/dist ./dist
 COPY package.json LICENSE index.js data/configuration.yaml ./
 
 COPY docker/docker-entrypoint.sh /usr/local/bin/
