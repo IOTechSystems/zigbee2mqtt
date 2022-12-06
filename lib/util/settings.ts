@@ -676,7 +676,15 @@ export function changeEntityOptions(IDorName: string, newOptions: KeyValue): voi
 export function changeFriendlyName(IDorName: string, newName: string): void {
     utils.validateFriendlyName(newName, true);
     if (getGroup(newName) || getDevice(newName)) {
-        throw new Error(`friendly_name '${newName}' is already in use`);
+        let equalsOwnAddress = false;
+        const settings = get();
+        for (const [ID, device] of Object.entries(settings.devices)) {
+            if (device.friendly_name === IDorName && ID === newName) {
+                equalsOwnAddress = true;
+                break;
+            }
+        }
+        if (!equalsOwnAddress) throw new Error(`friendly_name '${newName}' is already in use`);
     }
 
     const settings = getInternalSettings();
