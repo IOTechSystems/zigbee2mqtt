@@ -6,6 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import {detailedDiff} from 'deep-object-diff';
 import objectAssignDeep from 'object-assign-deep';
+import type * as zhc from 'zigbee-herdsman-converters';
 
 // construct a local ISO8601 string (instead of UTC-based)
 // Example:
@@ -35,6 +36,8 @@ const endpointNames = [
     'ep1', 'ep2', 'row_1', 'row_2', 'row_3', 'row_4', 'relay', 'usb',
     'l1', 'l2', 'l3', 'l4', 'l5', 'l6', 'l7', 'l8',
     'l9', 'l10', 'l11', 'l12', 'l13', 'l14', 'l15', 'l16',
+    'l17', 'l18', 'l19', 'l20', 'l21', 'l22', 'l23', 'l24',
+    'th1', 'th2', 'th3', 'th4', 'th5', 'th6', 'th7', 'th8', 'th9', 'th10',
     'button_1', 'button_2', 'button_3', 'button_4', 'button_5',
     'button_6', 'button_7', 'button_8', 'button_9', 'button_10',
     'button_11', 'button_12', 'button_13', 'button_14', 'button_15',
@@ -79,7 +82,9 @@ async function getZigbee2MQTTVersion(includeCommitHash=true): Promise<{commitHas
 }
 
 async function getDependencyVersion(depend: string): Promise<{version: string}> {
-    const packageJSON = await import(path.join(require.resolve(depend), '..', '..', 'package.json'));
+    const modulePath = path.dirname(require.resolve(depend));
+    const packageJSONPath = path.join(modulePath.slice(0, modulePath.indexOf(depend) + depend.length), 'package.json');
+    const packageJSON = await import(packageJSONPath);
     const version = packageJSON.version;
     return {version};
 }
@@ -157,25 +162,21 @@ function loadModuleFromFile(modulePath: string): unknown {
     return loadModuleFromText(moduleCode);
 }
 
-function* getExternalConvertersDefinitions(settings: Settings): Generator<zhc.ExternalDefinition> {
-    const externalConverters = settings.external_converters;
+export function* loadExternalConverter(moduleName: string): Generator<ExternalDefinition> {
+    let converter;
 
-    for (const moduleName of externalConverters) {
-        let converter;
+    if (moduleName.endsWith('.js')) {
+        converter = loadModuleFromFile(data.joinPath(moduleName));
+    } else {
+        converter = require(moduleName);
+    }
 
-        if (moduleName.endsWith('.js')) {
-            converter = loadModuleFromFile(data.joinPath(moduleName));
-        } else {
-            converter = require(moduleName);
+    if (Array.isArray(converter)) {
+        for (const item of converter) {
+            yield item;
         }
-
-        if (Array.isArray(converter)) {
-            for (const item of converter) {
-                yield item;
-            }
-        } else {
-            yield converter;
-        }
+    } else {
+        yield converter;
     }
 }
 
@@ -367,6 +368,18 @@ function clone(obj: KeyValue): KeyValue {
     return JSON.parse(JSON.stringify(obj));
 }
 
+export function isNumericExposeFeature(feature: zhc.Feature): feature is zhc.Numeric {
+    return feature?.type === 'numeric';
+}
+
+export function isEnumExposeFeature(feature: zhc.Feature): feature is zhc.Enum {
+    return feature?.type === 'enum';
+}
+
+export function isBinaryExposeFeature(feature: zhc.Feature): feature is zhc.Binary {
+    return feature?.type === 'binary';
+}
+
 function computeSettingsToChange(current: KeyValue, new_: KeyValue): KeyValue {
     const diff: KeyValue = detailedDiff(current, new_);
 
@@ -400,11 +413,30 @@ function computeSettingsToChange(current: KeyValue, new_: KeyValue): KeyValue {
     return newSettings;
 }
 
+function getScenes(entity: zh.Endpoint | zh.Group): Scene[] {
+    const scenes: {[id: number]: Scene} = {};
+    const endpoints = isEndpoint(entity) ? [entity] : entity.members;
+    const groupID = isEndpoint(entity) ? 0 : entity.groupID;
+
+    for (const endpoint of endpoints) {
+        for (const [key, data] of Object.entries(endpoint.meta?.scenes || {})) {
+            const split = key.split('_');
+            const sceneID = parseInt(split[0], 10);
+            const sceneGroupID = parseInt(split[1], 10);
+            if (sceneGroupID === groupID) {
+                scenes[sceneID] = {id: sceneID, name: (data as KeyValue).name || `Scene ${sceneID}`};
+            }
+        }
+    }
+
+    return Object.values(scenes);
+}
+
 export default {
     endpointNames, capitalize, getZigbee2MQTTVersion, getDependencyVersion, formatDate, objectHasProperties,
     equalsPartial, getObjectProperty, getResponse, parseJSON, loadModuleFromText, loadModuleFromFile,
-    getExternalConvertersDefinitions, removeNullPropertiesFromObject, toNetworkAddressHex, toSnakeCase,
+    removeNullPropertiesFromObject, toNetworkAddressHex, toSnakeCase,
     parseEntityID, isEndpoint, isZHGroup, hours, minutes, seconds, validateFriendlyName, sleep,
     sanitizeImageParameter, isAvailabilityEnabledForEntity, publishLastSeen, availabilityPayload,
-    getAllFiles, filterProperties, flatten, arrayUnique, clone, computeSettingsToChange,
+    getAllFiles, filterProperties, flatten, arrayUnique, clone, computeSettingsToChange, getScenes,
 };

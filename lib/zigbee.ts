@@ -9,6 +9,7 @@ import Device from './model/device';
 import Group from './model/group';
 import * as ZHEvents from 'zigbee-herdsman/dist/controller/events';
 import bind from 'bind-decorator';
+import {randomInt} from 'crypto';
 
 export default class Zigbee {
     private herdsman: Controller;
@@ -27,7 +28,8 @@ export default class Zigbee {
             network: {
                 panID: settings.get().advanced.pan_id === 'GENERATE' ?
                     this.generatePanID() : settings.get().advanced.pan_id as number,
-                extendedPanID: settings.get().advanced.ext_pan_id,
+                extendedPanID: settings.get().advanced.ext_pan_id === 'GENERATE' ?
+                    this.generateExtPanID() : settings.get().advanced.ext_pan_id as number[],
                 channelList: [settings.get().advanced.channel],
                 networkKey: settings.get().advanced.network_key === 'GENERATE' ?
                     this.generateNetworkKey() : settings.get().advanced.network_key as number[],
@@ -61,6 +63,10 @@ export default class Zigbee {
             throw error;
         }
 
+        for (const device of this.devices(false)) {
+            await device.resolveDefinition();
+        }
+
         this.herdsman.on('adapterDisconnected', () => this.eventBus.emitAdapterDisconnected());
         this.herdsman.on('lastSeenChanged', (data: ZHEvents.LastSeenChangedPayload) => {
             this.eventBus.emitLastSeenChanged({device: this.resolveDevice(data.device.ieeeAddr), reason: data.reason});
@@ -78,15 +84,17 @@ export default class Zigbee {
             logger.debug(`Device '${device.name}' announced itself`);
             this.eventBus.emitDeviceAnnounce({device});
         });
-        this.herdsman.on('deviceInterview', (data: ZHEvents.DeviceInterviewPayload) => {
+        this.herdsman.on('deviceInterview', async (data: ZHEvents.DeviceInterviewPayload) => {
             const device = this.resolveDevice(data.device.ieeeAddr);
+            await device.resolveDefinition();
             /* istanbul ignore if */ if (!device) return; // Prevent potential race
             const d = {device, status: data.status};
             this.logDeviceInterview(d);
             this.eventBus.emitDeviceInterview(d);
         });
-        this.herdsman.on('deviceJoined', (data: ZHEvents.DeviceJoinedPayload) => {
+        this.herdsman.on('deviceJoined', async (data: ZHEvents.DeviceJoinedPayload) => {
             const device = this.resolveDevice(data.device.ieeeAddr);
+            await device.resolveDefinition();
             /* istanbul ignore if */ if (!device) return; // Prevent potential race
             logger.info(`Device '${device.name}' joined`);
             this.eventBus.emitDeviceJoined({device});
@@ -96,8 +104,9 @@ export default class Zigbee {
             logger.warn(`Device '${name}' left the network`);
             this.eventBus.emitDeviceLeave({ieeeAddr: data.ieeeAddr, name});
         });
-        this.herdsman.on('message', (data: ZHEvents.MessagePayload) => {
+        this.herdsman.on('message', async (data: ZHEvents.MessagePayload) => {
             const device = this.resolveDevice(data.device.ieeeAddr);
+            await device.resolveDefinition();
             logger.debug(`Received Zigbee message from '${device.name}', type '${data.type}', ` +
                 `cluster '${data.cluster}', data '${stringify(data.data)}' from endpoint ${data.endpoint.ID}` +
                 (data.hasOwnProperty('groupID') ? ` with groupID ${data.groupID}` : ``) +
@@ -147,7 +156,7 @@ export default class Zigbee {
         if (data.status === 'successful') {
             logger.info(`Successfully interviewed '${name}', device has successfully been paired`);
 
-            if (data.device.definition) {
+            if (data.device.isSupported) {
                 const {vendor, description, model} = data.device.definition;
                 logger.info(`Device '${name}' is supported, identified as: ${vendor} ${description} (${model})`);
             } else {
@@ -164,13 +173,19 @@ export default class Zigbee {
     }
 
     private generateNetworkKey(): number[] {
-        const key = Array.from({length: 16}, () => Math.floor(Math.random() * 255));
+        const key = Array.from({length: 16}, () => randomInt(256));
         settings.set(['advanced', 'network_key'], key);
         return key;
     }
 
+    private generateExtPanID(): number[] {
+        const key = Array.from({length: 8}, () => randomInt(256));
+        settings.set(['advanced', 'ext_pan_id'], key);
+        return key;
+    }
+
     private generatePanID(): number {
-        const panID = Math.floor(Math.random() * (0xFFFF - 2)) + 1;
+        const panID = randomInt(1, 0xFFFF - 1);
         settings.set(['advanced', 'pan_id'], panID);
         return panID;
     }
@@ -185,6 +200,11 @@ export default class Zigbee {
 
     async backup(): Promise<void> {
         return this.herdsman.backup();
+    }
+
+    async coordinatorCheck(): Promise<{missingRouters: Device[]}> {
+        const check = await this.herdsman.coordinatorCheck();
+        return {missingRouters: check.missingRouters.map((d) => this.resolveDevice(d.ieeeAddr))};
     }
 
     async getNetworkParameters(): Promise<zh.NetworkParameters> {

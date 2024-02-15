@@ -17,6 +17,12 @@ import type {
     Cluster as ZHCluster,
 } from 'zigbee-herdsman/dist/zcl/tstype';
 
+import type {
+    FrameControl as ZHFrameControl,
+} from 'zigbee-herdsman/dist/zcl';
+
+import type * as zhc from 'zigbee-herdsman-converters';
+
 import type * as ZHEvents from 'zigbee-herdsman/dist/controller/events';
 
 import type TypeEventBus from 'lib/eventBus';
@@ -27,7 +33,7 @@ import type TypeDevice from 'lib/model/device';
 import type TypeGroup from 'lib/model/group';
 import type TypeExtension from 'lib/extension/extension';
 
-import type mqtt from 'mqtt';
+import type {QoS} from 'mqtt-packet';
 
 declare global {
     // Define some class types as global
@@ -40,8 +46,11 @@ declare global {
     type Extension = TypeExtension;
 
     // Types
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    type ExternalDefinition = zhc.Definition & {homeassistant: any};
     interface MQTTResponse {data: KeyValue, status: 'error' | 'ok', error?: string, transaction?: string}
-    interface MQTTOptions {qos?: mqtt.QoS, retain?: boolean, properties?: {messageExpiryInterval: number}}
+    interface MQTTOptions {qos?: QoS, retain?: boolean, properties?: {messageExpiryInterval: number}}
+    type Scene = {id: number, name: string};
     type StateChangeReason = 'publishDebounce' | 'groupOptimistic' | 'lastSeenChanged' | 'publishCached';
     type PublishEntityState = (entity: Device | Group, payload: KeyValue,
         stateChangeReason?: StateChangeReason) => Promise<void>;
@@ -66,73 +75,6 @@ declare global {
         }
     }
 
-    // zigbee-herdsman-converters
-    namespace zhc {
-        interface Logger {
-            info: (message: string) => void;
-            warn: (message: string) => void;
-            error: (message: string) => void;
-            debug: (message: string) => void;
-        }
-
-        interface ToZigbeeConverterGetMeta {message?: KeyValue, mapped?: Definition | Definition[]}
-
-        interface ToZigbeeConverterResult {state: KeyValue,
-            membersState: {[s: string]: KeyValue}, readAfterWriteTime?: number}
-
-        interface ToZigbeeConverter {
-            key: string[],
-            convertGet?: (entity: zh.Endpoint | zh.Group, key: string, meta: ToZigbeeConverterGetMeta) => Promise<void>
-            convertSet?: (entity: zh.Endpoint | zh.Group, key: string, value: KeyValue | string | number,
-                meta: {state: KeyValue}) => Promise<ToZigbeeConverterResult>
-        }
-
-        interface FromZigbeeConverter {
-            cluster: string,
-            type: string[] | string,
-            convert: (model: Definition, msg: KeyValue, publish: (payload: KeyValue) => void, options: KeyValue,
-                meta: {state: KeyValue, logger: Logger, device: zh.Device}) => Promise<KeyValue>,
-        }
-
-        interface DefinitionExposeFeature {name: string, endpoint?: string,
-            property: string, value_max?: number, value_min?: number, unit?: string,
-            value_off?: string, value_on?: string, value_step?: number, values: string[], access: number}
-
-        interface DefinitionExpose {
-            type: string, name?: string, features?: DefinitionExposeFeature[],
-            endpoint?: string, values?: string[], value_off?: string, value_on?: string, value_step?: number,
-            access: number, property: string, unit?: string,
-            value_min?: number, value_max?: number}
-
-        interface OtaUpdateAvailableResult {available: boolean, currentFileVersion: number, otaFileVersion: number}
-
-        interface Definition {
-            model: string,
-            zigbeeModel: string[],
-            endpoint?: (device: zh.Device) => {[s: string]: number}
-            toZigbee: ToZigbeeConverter[]
-            fromZigbee: FromZigbeeConverter[]
-            icon?: string
-            description: string
-            options: zhc.DefinitionExpose[],
-            vendor: string
-            exposes: DefinitionExpose[] | ((device: zh.Device, options: KeyValue) => DefinitionExpose[])
-            configure?: (device: zh.Device, coordinatorEndpoint: zh.Endpoint, logger: Logger,
-                options?: DeviceOptions) => Promise<void>;
-            onEvent?: (type: string, data: KeyValue, device: zh.Device,
-                settings: KeyValue, state: KeyValue) => Promise<void>;
-            ota?: {
-                isUpdateAvailable: (device: zh.Device, logger: Logger, data?: KeyValue)
-                    => Promise<OtaUpdateAvailableResult>;
-                updateToLatest: (device: zh.Device, logger: Logger,
-                    onProgress: (progress: number, remaining: number) => void) => Promise<number>;
-            }
-        }
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        type ExternalDefinition = Definition & {homeassistant: any};
-    }
-
     namespace eventdata {
         type EntityRenamed = { entity: Device | Group, homeAssisantRename: boolean, from: string, to: string };
         type DeviceRemoved = { ieeeAddr: string, name: string };
@@ -148,6 +90,7 @@ declare global {
         type DeviceInterview = { device: Device, status: 'started' | 'successful' | 'failed' };
         type DeviceJoined = { device: Device };
         type EntityOptionsChanged = { entity: Device | Group, from: KeyValue, to: KeyValue };
+        type ExposesChanged = { device: Device };
         type Reconfigure = { device: Device };
         type DeviceLeave = { ieeeAddr: string, name: string };
         type GroupMembersChanged = {group: Group, action: 'remove' | 'add' | 'remove_all',
@@ -162,8 +105,9 @@ declare global {
             groupID: number;
             cluster: string | number;
             data: KeyValue | Array<string | number>;
-            meta: {zclTransactionSequenceNumber?: number;};
+            meta: {zclTransactionSequenceNumber?: number; manufacturerCode?: number; frameControl?: ZHFrameControl;};
         };
+        type ScenesChanged = { entity: Device | Group };
     }
 
     // Settings
@@ -185,7 +129,7 @@ declare global {
             base_topic: string,
             include_device_information: boolean,
             force_disable_retain: boolean
-            version?: number,
+            version?: 3 | 4 | 5,
             user?: string,
             password?: string,
             server: string,
@@ -253,7 +197,7 @@ declare global {
             log_level: 'debug' | 'info' | 'error' | 'warn',
             log_syslog: KeyValue,
             pan_id: number | 'GENERATE',
-            ext_pan_id: number[],
+            ext_pan_id: number[] | 'GENERATE',
             channel: number,
             adapter_concurrent: number | null,
             adapter_delay: number | null,
@@ -312,4 +256,3 @@ declare global {
         qos?: 0 | 1 | 2,
     }
 }
-

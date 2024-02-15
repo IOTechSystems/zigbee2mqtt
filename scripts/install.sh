@@ -24,7 +24,7 @@ echo "Cloning Zigbee2MQTT git repository"
 git clone https://github.com/Koenkk/zigbee2mqtt.git /opt/zigbee2mqtt
 chown -R pi:pi /opt/zigbee2mqtt
 
-echo "Running install. This might take a while and can produce som expected errors"
+echo "Running install. This might take a while and can produce some expected errors"
 cd /opt/zigbee2mqtt || exit
 su pi -c "npm ci"
 
@@ -36,10 +36,12 @@ Description=zigbee2mqtt
 After=network.target
 
 [Service]
-ExecStart=/usr/bin/npm start
+Type=notify
+ExecStart=/usr/bin/node index.js
 WorkingDirectory=/opt/zigbee2mqtt
 StandardOutput=inherit
 StandardError=inherit
+WatchdogSec=10s
 Restart=always
 User=pi
 
