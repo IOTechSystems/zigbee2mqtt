@@ -123,6 +123,22 @@ describe('Settings', () => {
         expect(actual).toStrictEqual(expected);
     });
 
+    it('Should add devices even when devices exist empty', () => {
+        write(configurationFile, {devices: []});
+        settings.addDevice('0x12345678');
+
+        const actual = read(configurationFile);
+        const expected = {
+            devices: {
+                '0x12345678': {
+                    friendly_name: '0x12345678',
+                },
+            },
+        };
+
+        expect(actual).toStrictEqual(expected);
+    });
+
     it('Should read devices', () => {
         const content = {
             devices: {
@@ -319,22 +335,15 @@ describe('Settings', () => {
         expect(read(devicesFile)).toStrictEqual(expected);
     });
 
-    it('Should add devices for first file when using 2 separates file', () => {
+    function extractFromMultipleDeviceConfigs(contentDevices2) {
         const contentConfiguration = {
-            devices: ['devices.yaml', 'devices2.yaml']
+            devices: ['devices.yaml', 'devices2.yaml'],
         };
 
         const contentDevices = {
             '0x12345678': {
                 friendly_name: '0x12345678',
-                retain: false,
-            },
-        };
-
-        const contentDevices2 = {
-            '0x87654321': {
-                friendly_name: '0x87654321',
-                retain: false,
+                retain:        false,
             },
         };
 
@@ -349,15 +358,28 @@ describe('Settings', () => {
         const expected = {
             '0x12345678': {
                 friendly_name: '0x12345678',
-                retain: false,
+                retain:        false,
             },
-            '0x1234': {
+            '0x1234':     {
                 friendly_name: '0x1234',
             },
         };
 
         expect(read(devicesFile)).toStrictEqual(expected);
         expect(read(devicesFile2)).toStrictEqual(contentDevices2);
+    }
+
+    it('Should add devices for first file when using 2 separates file', () => {
+        extractFromMultipleDeviceConfigs({
+            '0x87654321': {
+                friendly_name: '0x87654321',
+                retain:        false,
+            },
+        });
+    });
+
+    it('Should add devices for first file when using 2 separates file and the second file is empty', () => {
+        extractFromMultipleDeviceConfigs(null)
     });
 
     it('Should add devices to a separate file if devices.yaml doesnt exist', () => {
@@ -666,6 +688,18 @@ describe('Settings', () => {
         }).toThrow(new Error("Device '0x123' already exists"));
     });
 
+    it('Should not allow any string values for ext_pan_id', () => {
+        write(configurationFile, {
+            ...minimalConfig,
+            advanced: {ext_pan_id: 'NOT_GENERATE'},
+        });
+
+        settings.reRead();
+
+        const error = `advanced.ext_pan_id: should be array or 'GENERATE' (is 'NOT_GENERATE')`;
+        expect(settings.validate()).toEqual(expect.arrayContaining([error]));
+    });
+
     it('Should not allow any string values for network_key', () => {
         write(configurationFile, {
             ...minimalConfig,
@@ -760,8 +794,7 @@ describe('Settings', () => {
 
     it('Should throw error when yaml file does not exist', () => {
         settings.testing.clear();
-        const error = `ENOENT: no such file or directory, open '${configurationFile}'`;
-        expect(settings.validate()).toEqual(expect.arrayContaining([error]));
+        expect(settings.validate()[0].startsWith(`ENOENT: no such file or directory, open `)).toBeTruthy();
     });
 
     it('Configuration shouldnt be valid when invalid QOS value is used', async () => {
@@ -904,16 +937,16 @@ describe('Settings', () => {
 
     it('Frontend config', () => {
         write(configurationFile, {...minimalConfig,
-            frontend: true, 
+            frontend: true,
         });
 
         settings.reRead();
-        expect(settings.get().frontend).toStrictEqual({port: 8080, auth_token: false, host: '0.0.0.0'})
+        expect(settings.get().frontend).toStrictEqual({port: 8080, auth_token: false})
     });
 
     it('Baudrate config', () => {
         write(configurationFile, {...minimalConfig,
-            advanced: {baudrate: 20}, 
+            advanced: {baudrate: 20},
         });
 
         settings.reRead();
@@ -922,7 +955,7 @@ describe('Settings', () => {
 
     it('ikea_ota_use_test_url config', () => {
         write(configurationFile, {...minimalConfig,
-            advanced: {ikea_ota_use_test_url: true}, 
+            advanced: {ikea_ota_use_test_url: true},
         });
 
         settings.reRead();
@@ -931,7 +964,7 @@ describe('Settings', () => {
 
     it('transmit_power config', () => {
         write(configurationFile, {...minimalConfig,
-            experimental: {transmit_power: 1337}, 
+            experimental: {transmit_power: 1337},
         });
 
         settings.reRead();
@@ -940,7 +973,7 @@ describe('Settings', () => {
 
     it('output config', () => {
         write(configurationFile, {...minimalConfig,
-            experimental: {output: 'json'}, 
+            experimental: {output: 'json'},
         });
 
         settings.reRead();
@@ -949,7 +982,7 @@ describe('Settings', () => {
 
     it('Baudrartsctste config', () => {
         write(configurationFile, {...minimalConfig,
-            advanced: {rtscts: true}, 
+            advanced: {rtscts: true},
         });
 
         settings.reRead();
@@ -958,7 +991,7 @@ describe('Settings', () => {
 
     it('Deprecated: Home Assistant config', () => {
         write(configurationFile, {...minimalConfig,
-            homeassistant: {discovery_topic: 'new'}, 
+            homeassistant: {discovery_topic: 'new'},
             advanced: {homeassistant_discovery_topic: 'old', homeassistant_status_topic: 'olds'},
         });
 

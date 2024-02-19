@@ -1,6 +1,5 @@
 import * as settings from '../../util/settings';
 import logger from '../../util/logger';
-import zigbeeHerdsmanConverters from 'zigbee-herdsman-converters';
 import utils from '../../util/utils';
 import assert from 'assert';
 import Extension from '../extension';
@@ -90,7 +89,7 @@ export default class BridgeLegacy extends Extension {
     @bind async reset(): Promise<void> {
         try {
             await this.zigbee.reset('soft');
-            logger.info('Soft resetted ZNP');
+            logger.info('Soft reset ZNP');
         } catch (error) {
             logger.error('Soft reset failed');
         }
@@ -140,7 +139,7 @@ export default class BridgeLegacy extends Extension {
             };
 
             if (device.zh.type !== 'Coordinator') {
-                const definition = zigbeeHerdsmanConverters.findByDevice(device.zh);
+                const definition = device.definition;
                 payload.model = definition ? definition.model : device.zh.modelID;
                 payload.vendor = definition ? definition.vendor : '-';
                 payload.description = definition ? definition.description : '-';
@@ -321,7 +320,7 @@ export default class BridgeLegacy extends Extension {
         try {
             logger.info(`${lookup[action][1]} '${entity.name}'`);
             if (action === 'force_remove') {
-                await entity.zh.removeFromDatabase();
+                entity.zh.removeFromDatabase();
             } else {
                 await entity.zh.removeFromNetwork();
             }
@@ -385,7 +384,7 @@ export default class BridgeLegacy extends Extension {
             );
         } else if (type === 'deviceInterview') {
             if (data.status === 'successful') {
-                if (resolvedEntity.definition) {
+                if (resolvedEntity.isSupported) {
                     const {vendor, description, model} = resolvedEntity.definition;
                     const log = {friendly_name: resolvedEntity.name, model, vendor, description, supported: true};
                     this.mqtt.publish(

@@ -1,4 +1,5 @@
 const data = require('./stub/data');
+const sleep = require('./stub/sleep');
 const logger = require('./stub/logger');
 const zigbeeHerdsman = require('./stub/zigbeeHerdsman');
 const zigbeeHerdsmanConverters = require('zigbee-herdsman-converters');
@@ -30,6 +31,7 @@ describe('Publish', () => {
         jest.useFakeTimers();
         data.writeEmptyState();
         controller = new Controller(jest.fn(), jest.fn());
+        sleep.mock();
         await controller.start();
         await flushPromises();
     });
@@ -50,12 +52,13 @@ describe('Publish', () => {
             g.command.mockClear();
         });
 
-        zigbeeHerdsmanConverters.toZigbeeConverters.__clearStore__();
+        zigbeeHerdsmanConverters.toZigbee.__clearStore__();
     });
 
     afterAll(async () => {
         jest.runOnlyPendingTimers();
         jest.useRealTimers();
+        sleep.restore();
     });
 
     it('Should publish messages to zigbee devices', async () => {
@@ -71,12 +74,7 @@ describe('Publish', () => {
     });
 
     it('Should corretly handle mallformed messages', async () => {
-        await MQTT.events.message('zigbee2mqtt/foo', undefined);
-        await MQTT.events.message('zigbee2mqtt/foo', null);
         await MQTT.events.message('zigbee2mqtt/foo', "");
-
-        await MQTT.events.message('zigbee2mqtt/bulb_color/set', undefined);
-        await MQTT.events.message('zigbee2mqtt/bulb_color/set', null);
         await MQTT.events.message('zigbee2mqtt/bulb_color/set', "");
         await flushPromises();
         expectNothingPublished();
@@ -150,7 +148,7 @@ describe('Publish', () => {
     it('Should publish messages to zigbee devices with color_temp in %', async () => {
         const device = zigbeeHerdsman.devices.bulb_color;
         const endpoint = device.getEndpoint(1);
-        await MQTT.events.message('zigbee2mqtt/bulb_color/set', stringify({color_temp_percent: '100'}));
+        await MQTT.events.message('zigbee2mqtt/bulb_color/set', stringify({color_temp_percent: 100}));
         await flushPromises();
         expect(endpoint.command).toHaveBeenCalledTimes(1);
         expect(endpoint.command).toHaveBeenCalledWith("lightingColorCtrl", "moveToColorTemp", {colortemp: 500, transtime: 0}, {});
@@ -964,7 +962,7 @@ describe('Publish', () => {
         await MQTT.events.message('zigbee2mqtt/bulb_color/set', stringify(payload));
         await flushPromises();
         expect(endpoint.command).toHaveBeenCalledTimes(1);
-        expect(endpoint.command.mock.calls[0]).toEqual(["lightingColorCtrl", "enhancedMoveToHueAndSaturation", {"direction": 0, "enhancehue": 44877, "saturation": 200, "transtime": 0,}, {}]);
+        expect(endpoint.command.mock.calls[0]).toEqual(["lightingColorCtrl", "enhancedMoveToHueAndSaturation", {"direction": 0, "enhancehue": 45510, "saturation": 127, "transtime": 0,}, {}]);
         expect(MQTT.publish).toHaveBeenCalledTimes(1);
         expect(MQTT.publish.mock.calls[0][0]).toStrictEqual('zigbee2mqtt/bulb_color');
         expect(JSON.parse(MQTT.publish.mock.calls[0][1])).toStrictEqual({"color":{"hue":250,"saturation":50}, "color_mode": "hs"});
@@ -1281,7 +1279,7 @@ describe('Publish', () => {
         expect(endpoint.command).toHaveBeenCalledWith("ssIasWd", "startWarning", {"startwarninginfo": 53, "warningduration": 10, "strobedutycycle": 0, "strobelevel": 1}, {disableDefaultResponse: true});
     });
 
-    it('Shouldnt do anythign when device is not supported', async () => {
+    it('Shouldnt do anything when device is not supported', async () => {
         const payload = {state: 'ON'};
         await MQTT.events.message('zigbee2mqtt/unsupported2/set', stringify(payload));
         await flushPromises();
@@ -1348,7 +1346,7 @@ describe('Publish', () => {
         await MQTT.events.message('zigbee2mqtt/bulb_color/set', stringify({state: 'ON', brightness: 20, transition: 0.0}));
         await flushPromises();
 
-        zigbeeHerdsmanConverters.toZigbeeConverters.__clearStore__();
+        zigbeeHerdsmanConverters.toZigbee.__clearStore__();
 
         await MQTT.events.message('zigbee2mqtt/bulb_color/set', stringify({"state": "ON", "transition": 1.0}));
         await flushPromises();

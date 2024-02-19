@@ -1,4 +1,4 @@
-FROM alpine:3.17.1 as base
+FROM alpine:3.18.4 as base
 
 WORKDIR /app
 RUN apk add --no-cache tzdata eudev tini nodejs
@@ -10,7 +10,7 @@ COPY package*.json tsconfig.json index.js ./
 COPY lib ./lib
 
 RUN apk add --no-cache --virtual .buildtools make gcc g++ python3 linux-headers git npm && \
-    npm ci --development --no-audit --no-optional --no-update-notifier && \
+    npm i && npm ci --development --no-audit --no-optional --no-update-notifier && \
     npm run build && \
     apk del .buildtools
 

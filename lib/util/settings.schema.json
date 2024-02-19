@@ -345,7 +345,7 @@
           "default": false
         },
         "zigbee_ota_override_index_location": {
-          "type": "string",
+          "type": ["string", "null"],
           "title": "OTA index override file name",
           "requiresRestart": true,
           "description": "Location of override OTA index file",
@@ -366,15 +366,15 @@
             "port": {
               "type": "number",
               "title": "Port",
-              "description": "Frontend binding port",
+              "description": "Frontend binding port. Ignored when using a unix domain socket",
               "default": 8080,
               "requiresRestart": true
             },
             "host": {
-              "type": "string",
+              "type": ["string", "null"],
               "title": "Bind host",
-              "description": "Frontend binding host",
-              "default": "0.0.0.0",
+              "description": "Frontend binding host. Binds to a unix socket when an absolute path is given instead.",
+              "examples": ["127.0.0.1", "::1", "/run/zigbee2mqtt/zigbee2mqtt.sock"],
               "requiresRestart": true
             },
             "auth_token": {
@@ -448,7 +448,7 @@
           "type": "boolean",
           "title": "Legacy availability payload",
           "requiresRestart": true,
-          "description": "Payload to be used for device availabilty and bridge/state topics. true = text, false = JSON",
+          "description": "Payload to be used for device availability and bridge/state topics. true = text, false = JSON",
           "default": true
         },
         "log_rotation": {
@@ -581,10 +581,18 @@
           "description": "ZigBee pan ID, changing requires repairing all devices!"
         },
         "ext_pan_id": {
-          "type": "array",
-          "items": {
-            "type": "number"
-          },
+          "oneOf": [{
+            "type": "string",
+            "title": "Extended pan ID (string)"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "title": "Extended pan ID (array)"
+            }
+          ],
           "title": "Ext Pan ID",
           "requiresRestart": true,
           "description": "Zigbee extended pan ID, changing requires repairing all devices!"
@@ -903,7 +911,7 @@
           "title": "Group off state",
           "default": "auto",
           "requiresRestart": true,
-          "description": "Control when to publish state OFF for a group. 'all_members_off': only publish state OFF when all group memebers are in state OFF, 'last_member_state': publish state OFF whenever one of its members changes to OFF"
+          "description": "Control when to publish state OFF for a group. 'all_members_off': only publish state OFF when all group members are in state OFF, 'last_member_state': publish state OFF whenever one of its members changes to OFF"
         },
         "filtered_attributes": {
           "type": "array",

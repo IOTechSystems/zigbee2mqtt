@@ -5,6 +5,7 @@ import Extension from './extension';
 import stringify from 'json-stable-stringify-without-jsonify';
 import bind from 'bind-decorator';
 import utils from '../util/utils';
+import * as zhc from 'zigbee-herdsman-converters';
 
 type DebounceFunction = (() => void) & { clear(): void; } & { flush(): void; };
 
@@ -49,6 +50,13 @@ export default class Receive extends Extension {
 
         // extend debounced payload with current
         this.debouncers[device.ieeeAddr].payload = {...this.debouncers[device.ieeeAddr].payload, ...payload};
+
+        // Update state cache right away. This makes sure that during debouncing cached state is always up to date.
+        // ( Update right away as "lastSeenChanged" event might occur while debouncer is still active.
+        //  And if that happens it would cause old message to be published from cache.
+        // By updating cache we make sure that state cache is always up-to-date.
+        this.state.set(device, this.debouncers[device.ieeeAddr].payload);
+
         this.debouncers[device.ieeeAddr].publish();
     }
 
@@ -70,17 +78,8 @@ export default class Receive extends Extension {
     }
 
     shouldProcess(data: eventdata.DeviceMessage): boolean {
-        if (!data.device.definition) {
-            if (data.device.zh.interviewing) {
-                logger.debug(`Skipping message, definition is undefined and still interviewing`);
-            } else {
-                logger.warn(
-                    `Received message from unsupported device with Zigbee model '${data.device.zh.modelID}' ` +
-                    `and manufacturer name '${data.device.zh.manufacturerName}'`);
-                // eslint-disable-next-line max-len
-                logger.warn(`Please see: https://www.zigbee2mqtt.io/advanced/support-new-devices/01_support_new_devices.html`);
-            }
-
+        if (!data.device.definition || data.device.zh.interviewing) {
+            logger.debug(`Skipping message, still interviewing`);
             return false;
         }
 
@@ -120,6 +119,9 @@ export default class Receive extends Extension {
         // - If NO payload is returned do nothing. This is for non-standard behaviour
         //   for e.g. click switches where we need to count number of clicks and detect long presses.
         const publish = (payload: KeyValue): void => {
+            const options: KeyValue = data.device.options;
+            zhc.postProcessConvertedFromZigbeeMessage(data.device.definition, payload, options, logger);
+
             if (settings.get().advanced.elapsed) {
                 const now = Date.now();
                 if (this.elapsed[data.device.ieeeAddr]) {
@@ -138,12 +140,20 @@ export default class Receive extends Extension {
             }
         };
 
-        const meta = {device: data.device.zh, logger, state: this.state.get(data.device)};
+        const deviceExposesChanged = (): void => {
+            this.eventBus.emitDevicesChanged();
+            this.eventBus.emitExposesChanged({device: data.device});
+        };
+
+        const meta = {device: data.device.zh, logger, state: this.state.get(data.device),
+            deviceExposesChanged: deviceExposesChanged};
         let payload: KeyValue = {};
         for (const converter of converters) {
             try {
+                const convertData = {...data, device: data.device.zh};
+                const options: KeyValue = data.device.options;
                 const converted = await converter.convert(
-                    data.device.definition, data, publish, data.device.options, meta);
+                    data.device.definition, convertData, publish, options, meta);
                 if (converted) {
                     payload = {...payload, ...converted};
                 }

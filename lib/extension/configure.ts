@@ -2,7 +2,7 @@ import * as settings from '../util/settings';
 import utils from '../util/utils';
 import logger from '../util/logger';
 import stringify from 'json-stable-stringify-without-jsonify';
-import zhc from 'zigbee-herdsman-converters';
+import * as zhc from 'zigbee-herdsman-converters';
 import Extension from './extension';
 import bind from 'bind-decorator';
 import Device from '../model/device';
@@ -66,6 +66,9 @@ export default class Configure extends Extension {
     override async start(): Promise<void> {
         setImmediate(async () => {
             for (const device of this.zigbee.devices(false)) {
+                // Sleep 10 seconds between configuring on startup to not DDoS the coordinator
+                // when many devices have to be configured.
+                await utils.sleep(10);
                 await this.configure(device, 'started');
             }
         });
@@ -85,7 +88,7 @@ export default class Configure extends Extension {
     }
 
     private async configure(device: Device, event: 'started' | 'zigbee_event' | 'reporting_disabled' | 'mqtt_message',
-        force=false, thowError=false): Promise<void> {
+        force=false, throwError=false): Promise<void> {
         if (!force) {
             if (device.options.disabled || !device.definition?.configure || !device.zh.interviewCompleted) {
                 return;
@@ -114,8 +117,7 @@ export default class Configure extends Extension {
 
         logger.info(`Configuring '${device.name}'`);
         try {
-            await device.definition.configure(device.zh, this.zigbee.firstCoordinatorEndpoint(), logger,
-                device.options);
+            await device.definition.configure(device.zh, this.zigbee.firstCoordinatorEndpoint(), logger);
             logger.info(`Successfully configured '${device.name}'`);
             device.zh.meta.configured = zhc.getConfigureKey(device.definition);
             device.zh.save();
@@ -126,11 +128,11 @@ export default class Configure extends Extension {
             const msg = `Failed to configure '${device.name}', attempt ${attempt} (${error.stack})`;
             logger.error(msg);
 
-            if (thowError) {
+            if (throwError) {
                 throw error;
             }
+        } finally {
+            this.configuring.delete(device.ieeeAddr);
         }
-
-        this.configuring.delete(device.ieeeAddr);
     }
 }

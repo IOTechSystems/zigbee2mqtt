@@ -1,5 +1,5 @@
 const data = require('./stub/data');
-require('./stub/logger');
+const logger = require('./stub/logger');
 require('./stub/zigbeeHerdsman');
 const MQTT = require('./stub/mqtt');
 const settings = require('../lib/util/settings');
@@ -59,6 +59,7 @@ jest.mock('http', () => ({
         mockHTTP.variables.onRequest = onRequest;
         return mockHTTP.implementation;
     }),
+    Agent: jest.fn(),
 }));
 
 jest.mock('https', () => ({
@@ -66,6 +67,7 @@ jest.mock('https', () => ({
         mockHTTPS.variables.onRequest = onRequest;
         return mockHTTPS.implementation;
     }),
+    Agent: jest.fn(),
 }));
 
 jest.mock("connect-gzip-static", () =>
@@ -128,6 +130,56 @@ describe('Frontend', () => {
         expect(mockWSClient.implementation.terminate).toHaveBeenCalledTimes(1);
         expect(mockHTTP.implementation.close).toHaveBeenCalledTimes(1);
         expect(mockWS.implementation.close).toHaveBeenCalledTimes(1);
+        mockWS.implementation.close.mockClear();
+        mockHTTP.implementation.close.mockClear();
+        mockHTTP.implementation.listen.mockClear();
+        mockHTTPS.implementation.listen.mockClear();
+    });
+
+    it('Start/stop without host', async () => {
+        settings.set(['frontend'], {port: 8081});
+        controller = new Controller(jest.fn(), jest.fn());
+        await controller.start();
+        expect(mockNodeStatic.variables.path).toBe("my/dummy/path");
+        expect(mockHTTP.implementation.listen).toHaveBeenCalledWith(8081);
+        const mockWSClient = {
+            implementation: {
+                terminate: jest.fn(),
+                send: jest.fn(),
+            },
+            events: {},
+        };
+        mockWS.implementation.clients.push(mockWSClient.implementation);
+        await controller.stop();
+        expect(mockWSClient.implementation.terminate).toHaveBeenCalledTimes(1);
+        expect(mockHTTP.implementation.close).toHaveBeenCalledTimes(1);
+        expect(mockWS.implementation.close).toHaveBeenCalledTimes(1);
+        mockWS.implementation.close.mockClear();
+        mockHTTP.implementation.close.mockClear();
+        mockHTTP.implementation.listen.mockClear();
+        mockHTTPS.implementation.listen.mockClear();
+    });
+
+    it('Start/stop unix socket', async () => {
+        settings.set(['frontend'], {host: "/tmp/zigbee2mqtt.sock"});
+        controller = new Controller(jest.fn(), jest.fn());
+        await controller.start();
+        expect(mockNodeStatic.variables.path).toBe("my/dummy/path");
+        expect(mockHTTP.implementation.listen).toHaveBeenCalledWith("/tmp/zigbee2mqtt.sock");
+        const mockWSClient = {
+            implementation: {
+                terminate: jest.fn(),
+                send: jest.fn(),
+            },
+            events: {},
+        };
+        mockWS.implementation.clients.push(mockWSClient.implementation);
+        await controller.stop();
+        expect(mockWSClient.implementation.terminate).toHaveBeenCalledTimes(1);
+        expect(mockHTTP.implementation.close).toHaveBeenCalledTimes(1);
+        expect(mockWS.implementation.close).toHaveBeenCalledTimes(1);
+        mockWS.implementation.close.mockClear();
+        mockHTTP.implementation.close.mockClear();
         mockHTTP.implementation.listen.mockClear();
         mockHTTPS.implementation.listen.mockClear();
     });
@@ -205,6 +257,10 @@ describe('Frontend', () => {
         mockWSClient.events.message("", false);
         mockWSClient.events.message(null, false);
         await flushPromises();
+
+        // Error
+        mockWSClient.events.error(new Error('This is an error'));
+        expect(logger.error).toHaveBeenCalledWith('WebSocket error: This is an error');
 
         // Received message on socket
         expect(mockWSClient.implementation.send).toHaveBeenCalledTimes(1);

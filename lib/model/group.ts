@@ -1,6 +1,6 @@
 /* eslint-disable brace-style */
 import * as settings from '../util/settings';
-import zigbeeHerdsmanConverters from 'zigbee-herdsman-converters';
+import * as zhc from 'zigbee-herdsman-converters';
 
 export default class Group {
     public zh: zh.Group;
@@ -24,8 +24,7 @@ export default class Group {
     }
 
     membersDefinitions(): zhc.Definition[] {
-        return this.zh.members.map((m) =>
-            zigbeeHerdsmanConverters.findByDevice(m.getDevice())).filter((d) => d) as zhc.Definition[];
+        return this.membersDevices().map((d) => d.definition).filter((d) => d);
     }
 
     isDevice(): this is Device {return false;}

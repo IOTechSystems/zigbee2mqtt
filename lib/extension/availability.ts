@@ -4,6 +4,7 @@ import utils from '../util/utils';
 import * as settings from '../util/settings';
 import debounce from 'debounce';
 import bind from 'bind-decorator';
+import * as zhc from 'zigbee-herdsman-converters';
 
 const retrieveOnReconnect = [
     {keys: ['state']},
@@ -17,6 +18,7 @@ export default class Availability extends Extension {
     private retrieveStateDebouncers: {[s: string]: () => void} = {};
     private pingQueue: Device[] = [];
     private pingQueueExecuting = false;
+    private stopped = false;
 
     private getTimeout(device: Device): number {
         if (typeof device.options.availability === 'object' && device.options.availability?.timeout != null) {
@@ -47,7 +49,7 @@ export default class Availability extends Extension {
     private resetTimer(device: Device): void {
         clearTimeout(this.timers[device.ieeeAddr]);
 
-        // If the timer triggers, the device is not avaiable anymore otherwise resetTimer already have been called
+        // If the timer triggers, the device is not available anymore otherwise resetTimer already have been called
         if (this.isActiveDevice(device)) {
             // If device did not check in, ping it, if that fails it will be marked as offline
             this.timers[device.ieeeAddr] = setTimeout(
@@ -82,7 +84,7 @@ export default class Availability extends Extension {
                 const disableRecovery = !(i == 1 && available);
                 await device.zh.ping(disableRecovery);
                 pingedSuccessfully = true;
-                logger.debug(`Succesfully pinged '${device.name}' (attempt ${i + 1}/${attempts})`);
+                logger.debug(`Successfully pinged '${device.name}' (attempt ${i + 1}/${attempts})`);
                 break;
             } catch (error) {
                 logger.warn(`Failed to ping '${device.name}' (attempt ${i + 1}/${attempts}, ${error.message})`);
@@ -90,6 +92,11 @@ export default class Availability extends Extension {
                 const lastAttempt = i - 1 === attempts;
                 !lastAttempt && await utils.sleep(3);
             }
+        }
+
+        if (this.stopped) {
+            // Exit here to avoid triggering any follow-up activity (e.g., re-queuing another ping attempt).
+            return;
         }
 
         this.publishAvailability(device, !pingedSuccessfully);
@@ -103,9 +110,13 @@ export default class Availability extends Extension {
     }
 
     override async start(): Promise<void> {
+        if (this.stopped) {
+            throw new Error('This extension cannot be restarted.');
+        }
+
         this.eventBus.onEntityRenamed(this, (data) => {
             if (utils.isAvailabilityEnabledForEntity(data.entity, settings.get())) {
-                this.mqtt.publish(`${data.from}/availability`, null, {retain: true, qos: 0});
+                this.mqtt.publish(`${data.from}/availability`, null, {retain: true, qos: 1});
                 this.publishAvailability(data.entity, false, true);
             }
         });
@@ -122,7 +133,7 @@ export default class Availability extends Extension {
     @bind private publishAvailabilityForAllEntities(): void {
         for (const entity of [...this.zigbee.devices(false), ...this.zigbee.groups()]) {
             if (utils.isAvailabilityEnabledForEntity(entity, settings.get())) {
-                // Publish initial availablility
+                // Publish initial availability
                 this.publishAvailability(entity, true, false, true);
 
                 if (entity.isDevice()) {
@@ -164,7 +175,7 @@ export default class Availability extends Extension {
         const topic = `${entity.name}/availability`;
         const payload = utils.availabilityPayload(available ? 'online' : 'offline', settings.get());
         this.availabilityCache[entity.ID] = available;
-        this.mqtt.publish(topic, payload, {retain: true, qos: 0});
+        this.mqtt.publish(topic, payload, {retain: true, qos: 1});
 
         if (!skipGroups && entity.isDevice()) {
             this.zigbee.groups().filter((g) => g.hasMember(entity))
@@ -183,8 +194,10 @@ export default class Availability extends Extension {
     }
 
     override async stop(): Promise<void> {
+        this.stopped = true;
+        this.pingQueue = [];
         Object.values(this.timers).forEach((t) => clearTimeout(t));
-        super.stop();
+        await super.stop();
     }
 
     private retrieveState(device: Device): void {
@@ -199,8 +212,13 @@ export default class Availability extends Extension {
                 for (const item of retrieveOnReconnect) {
                     if (item.condition && this.state.get(device) && !item.condition(this.state.get(device))) continue;
                     const converter = device.definition.toZigbee.find((c) => c.key.find((k) => item.keys.includes(k)));
-                    await converter?.convertGet?.(device.endpoint(), item.keys[0],
-                        {message: this.state.get(device), mapped: device.definition})
+                    const options: KeyValue = device.options;
+                    const state = this.state.get(device);
+                    const meta: zhc.Tz.Meta = {
+                        message: this.state.get(device), mapped: device.definition, logger, endpoint_name: null,
+                        options, state, device: device.zh,
+                    };
+                    await converter?.convertGet?.(device.endpoint(), item.keys[0], meta)
                         .catch((e) => {
                             logger.error(`Failed to read state of '${device.name}' after reconnect (${e.message})`);
                         });

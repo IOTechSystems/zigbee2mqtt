@@ -9,7 +9,7 @@ import Extension from '../extension';
  * This extensions soft resets the ZNP after a certain timeout.
  */
 export default class SoftReset extends Extension {
-    private timer: NodeJS.Timer = null;
+    private timer: NodeJS.Timeout = null;
     private timeout = utils.seconds(settings.get().advanced.soft_reset_timeout);
 
     override async start(): Promise<void> {
@@ -43,7 +43,7 @@ export default class SoftReset extends Extension {
 
         try {
             await this.zigbee.reset('soft');
-            logger.warn('Soft resetted ZNP due to timeout');
+            logger.warn('Soft reset ZNP due to timeout');
         } catch (error) {
             logger.warn('Soft reset failed, trying stop/start');
 

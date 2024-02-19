@@ -1,5 +1,5 @@
 import events from 'events';
-events.captureRejections = true;
+import logger from './util/logger';
 
 // eslint-disable-next-line
 type ListenerKey = object;
@@ -8,9 +8,8 @@ export default class EventBus {
     private callbacksByExtension: { [s: string]: { event: string, callback: (...args: unknown[]) => void }[] } = {};
     private emitter = new events.EventEmitter();
 
-    constructor(onError: (error: Error) => void) {
+    constructor() {
         this.emitter.setMaxListeners(100);
-        this.emitter.on('error', onError);
     }
 
     public emitAdapterDisconnected(): void {
@@ -91,6 +90,13 @@ export default class EventBus {
         this.on('entityOptionsChanged', callback, key);
     }
 
+    public emitExposesChanged(data: eventdata.ExposesChanged): void {
+        this.emitter.emit('exposesChanged', data);
+    }
+    public onExposesChanged(key: ListenerKey, callback: (data: eventdata.ExposesChanged) => void): void {
+        this.on('exposesChanged', callback, key);
+    }
+
     public emitDeviceLeave(data: eventdata.DeviceLeave): void {
         this.emitter.emit('deviceLeave', data);
     }
@@ -140,10 +146,10 @@ export default class EventBus {
         this.on('devicesChanged', callback, key);
     }
 
-    public emitScenesChanged(): void {
-        this.emitter.emit('scenesChanged');
+    public emitScenesChanged(data: eventdata.ScenesChanged): void {
+        this.emitter.emit('scenesChanged', data);
     }
-    public onScenesChanged(key: ListenerKey, callback: () => void): void {
+    public onScenesChanged(key: ListenerKey, callback: (data: eventdata.ScenesChanged) => void): void {
         this.on('scenesChanged', callback, key);
     }
 
@@ -161,10 +167,18 @@ export default class EventBus {
         this.on('stateChange', callback, key);
     }
 
-    private on(event: string, callback: (...args: unknown[]) => void, key: ListenerKey): void {
+    private on(event: string, callback: (...args: unknown[]) => (Promise<void> | void), key: ListenerKey): void {
         if (!this.callbacksByExtension[key.constructor.name]) this.callbacksByExtension[key.constructor.name] = [];
-        this.callbacksByExtension[key.constructor.name].push({event, callback});
-        this.emitter.on(event, callback);
+        const wrappedCallback = async (...args: unknown[]): Promise<void> => {
+            try {
+                await callback(...args);
+            } catch (error) {
+                logger.error(`EventBus error '${key.constructor.name}/${event}': ${error.message}`);
+                logger.debug(error.stack);
+            }
+        };
+        this.callbacksByExtension[key.constructor.name].push({event, callback: wrappedCallback});
+        this.emitter.on(event, wrappedCallback);
     }
 
     public removeListeners(key: ListenerKey): void {

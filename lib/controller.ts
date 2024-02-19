@@ -8,6 +8,7 @@ import utils from './util/utils';
 import stringify from 'json-stable-stringify-without-jsonify';
 import assert from 'assert';
 import bind from 'bind-decorator';
+import * as zhc from 'zigbee-herdsman-converters';
 
 // Extensions
 import ExtensionFrontend from './extension/frontend';
@@ -39,6 +40,14 @@ const AllExtensions = [
 type ExtensionArgs = [Zigbee, MQTT, State, PublishEntityState, EventBus,
     (enable: boolean, name: string) => Promise<void>, () => void, (extension: Extension) => Promise<void>];
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let sdNotify: any = null;
+try {
+    sdNotify = process.env.NOTIFY_SOCKET ? require('sd-notify') : null;
+} catch {
+    // sd-notify is optional
+}
+
 export class Controller {
     private eventBus: EventBus;
     private zigbee: Zigbee;
@@ -51,10 +60,7 @@ export class Controller {
 
     constructor(restartCallback: () => void, exitCallback: (code: number, restart: boolean) => void) {
         logger.init();
-        this.eventBus = new EventBus( /* istanbul ignore next */ (error) => {
-            logger.error(`Error: ${error.message}`);
-            logger.debug(error.stack);
-        });
+        this.eventBus = new EventBus();
         this.zigbee = new Zigbee(this.eventBus);
         this.mqtt = new MQTT(this.eventBus);
         this.state = new State(this.eventBus, this.zigbee);
@@ -86,6 +92,8 @@ export class Controller {
             /* istanbul ignore next */
             settings.get().advanced.soft_reset_timeout !== 0 && new ExtensionSoftReset(...this.extensionArgs),
         ].filter((n) => n);
+
+        zhc.setLogger(logger);
     }
 
     async start(): Promise<void> {
@@ -121,7 +129,7 @@ export class Controller {
         const devices = this.zigbee.devices(false);
         logger.info(`Currently ${devices.length} devices are joined:`);
         for (const device of devices) {
-            const model = device.definition ?
+            const model = device.isSupported ?
                 `${device.definition.model} - ${device.definition.vendor} ${device.definition.description}` :
                 'Not supported';
             logger.info(`${device.name} (${device.ieeeAddr}): ${model} (${device.zh.type})`);
@@ -165,6 +173,12 @@ export class Controller {
             (data) => utils.publishLastSeen(data, settings.get(), false, this.publishEntityState));
 
         logger.info(`Zigbee2MQTT started!`);
+
+        const watchdogInterval = sdNotify?.watchdogInterval() || 0;
+        if (watchdogInterval > 0) {
+            sdNotify.startWatchdogMode(Math.floor(watchdogInterval / 2));
+        }
+        sdNotify?.ready();
     }
 
     @bind async enableDisableExtension(enable: boolean, name: string): Promise<void> {
@@ -189,6 +203,8 @@ export class Controller {
     }
 
     async stop(restart = false): Promise<void> {
+        sdNotify?.stopping();
+
         // Call extensions
         await this.callExtensions('stop', this.extensions);
         this.eventBus.removeListeners(this);
@@ -205,6 +221,8 @@ export class Controller {
             logger.error('Failed to stop Zigbee2MQTT');
             await this.exit(1, restart);
         }
+
+        sdNotify?.stopWatchdogMode();
     }
 
     async exit(code: number, restart = false): Promise<void> {
@@ -241,7 +259,7 @@ export class Controller {
 
         if (entity.isDevice() && settings.get().mqtt.include_device_information) {
             message.device = {
-                friendlyName: entity.name, model: entity.definition ? entity.definition.model : 'unknown',
+                friendlyName: entity.name, model: entity.definition?.model,
                 ieeeAddr: entity.ieeeAddr, networkAddress: entity.zh.networkAddress, type: entity.zh.type,
                 manufacturerID: entity.zh.manufacturerID,
                 powerSource: entity.zh.powerSource, applicationVersion: entity.zh.applicationVersion,
