@@ -296,22 +296,21 @@ export default class Publish extends Extension {
                             constructedData[returnAttributes[i]] = foundVal;
                             const msgType = 'readResponse';
 
-                            const constructedMsg: eventdata.DeviceMessage = {
+                            const constructedMsg= {
                                 type: msgType,
-                                // Will need to be changed for groups
-                                device: re instanceof Device ? re : null,
-                                endpoint: re instanceof Device ? re.endpoint(msg.endpoint) : null,
-                                linkquality: msg.linkquality,
+                                device: msg.device,
+                                endpoint: msg.endpoint,
                                 groupID: msg.groupID,
                                 cluster: returnCluster,
                                 data: constructedData,
                                 meta: {zclTransactionSequenceNumber: msg.frame.Header.transactionSequenceNumber},
+                                linkquality: 0
                             };
                             const emptyPublish = (payload: KeyValue): void => {
                             };
                             let revConverters;
                             if (!(re instanceof Group)) {
-                                revConverters = zigbeeHerdsmanConverters.findByDevice(re.zh).fromZigbee.filter((c) => {
+                                revConverters = (await zhc.findByDevice(re.zh)).fromZigbee.filter((c) => {
                                     const type = Array.isArray(c.type) ? c.type.includes(msgType) : c.type === msgType;
                                     return c.cluster === returnCluster.name && type;
                                 });
@@ -319,7 +318,7 @@ export default class Publish extends Extension {
                             for (const revConverter of revConverters) {
                                 try {
                                     const revConverted = await revConverter.convert(
-                                        re instanceof Device ? re.definition : null, constructedMsg, emptyPublish, re.options, meta);
+                                        re instanceof Device ? re.definition : null, constructedMsg, emptyPublish, msg.options, msg.meta);
                                     if (revConverted) foundVal = {...foundVal, ...revConverted};
                                 } catch (error) /* istanbul ignore next */ {
                                     logger.error(`Exception while calling fromZigbee converter: ${error.message}}`);
