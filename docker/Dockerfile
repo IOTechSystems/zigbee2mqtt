@@ -10,7 +10,7 @@ COPY package*.json tsconfig.json index.js ./
 COPY lib ./lib
 
 RUN apk add --no-cache --virtual .buildtools make gcc g++ python3 linux-headers git npm && \
-    npm i && npm ci --development --no-audit --no-optional --no-update-notifier && \
+    npm ci --development --no-audit --no-optional --no-update-notifier && \
     npm run build && \
     apk del .buildtools
 

@@ -231,9 +231,12 @@ export default class Publish extends Extension {
 
             // Converter didn't return a result, skip
             const entitySettingsKeyValue: KeyValue = entitySettings;
+            const deviceExposesChanged = (): void => {
+            };
             const meta = {
                 endpoint_name: endpointName, options: entitySettingsKeyValue,
                 message: {...message}, logger, device, state: entityState, membersState, mapped: definition,
+                deviceExposesChanged: deviceExposesChanged
             };
 
             // Strip endpoint name from meta.message properties.
@@ -283,6 +286,7 @@ export default class Publish extends Extension {
                     const session = createNameSpace('my session');
                     returnMap = await session.runAndReturn(async () => {
                         await converter.convertGet(localTarget, key, meta);
+                        if (re instanceof Group) return;
                         const msg = session.get('returnMessage');
                         const foundPayload = msg.frame.Payload;
                         const returnCluster = session.get('returnCluster');
@@ -299,12 +303,12 @@ export default class Publish extends Extension {
                             const constructedMsg= {
                                 type: msgType,
                                 device: msg.device,
-                                endpoint: msg.endpoint,
+                                endpoint: (re as Device).endpoint(msg.endpoint),
                                 groupID: msg.groupID,
                                 cluster: returnCluster,
                                 data: constructedData,
                                 meta: {zclTransactionSequenceNumber: msg.frame.Header.transactionSequenceNumber},
-                                linkquality: 0
+                                linkquality: msg.linkquality
                             };
                             const emptyPublish = (payload: KeyValue): void => {
                             };
@@ -318,7 +322,7 @@ export default class Publish extends Extension {
                             for (const revConverter of revConverters) {
                                 try {
                                     const revConverted = await revConverter.convert(
-                                        re instanceof Device ? re.definition : null, constructedMsg, emptyPublish, msg.options, msg.meta);
+                                        re instanceof Device ? re.definition : null, constructedMsg, emptyPublish, msg.options, meta);
                                     if (revConverted) foundVal = {...foundVal, ...revConverted};
                                 } catch (error) /* istanbul ignore next */ {
                                     logger.error(`Exception while calling fromZigbee converter: ${error.message}}`);
